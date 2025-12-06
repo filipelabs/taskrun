@@ -112,6 +112,68 @@ These are **non-negotiable** for the control plane ↔ worker channel:
 5. **Code signing**: If control plane distributes code/flows, they must be signed
 6. **Replay protection**: Unique `run_id`, timestamps, nonce validation
 
+## Project Management
+
+### GitHub Project & Issues
+
+All work is tracked in the GitHub Project:
+- **Project Board**: https://github.com/orgs/filipelabs/projects/1
+- **Issues**: https://github.com/filipelabs/taskrun/issues
+
+### Workflow Rules
+
+1. **Every feature or fix MUST be linked to a GitHub Issue**
+   - Do not start work without an associated issue
+   - If an issue doesn't exist, create one first
+
+2. **Branch naming convention**
+   ```
+   <type>/<issue-number>-<short-description>
+   ```
+   Examples:
+   - `feat/5-run-assignment-fake`
+   - `fix/12-worker-heartbeat-timeout`
+   - `docs/25-readme-update`
+
+3. **Commit messages MUST reference the issue**
+   ```
+   <type>: <description>
+
+   Refs #<issue-number>
+   ```
+   Or to auto-close:
+   ```
+   <type>: <description>
+
+   Closes #<issue-number>
+   ```
+
+4. **Pull Requests**
+   - Title: `[#<issue>] <description>`
+   - Body must link to the issue with `Closes #<issue>` or `Refs #<issue>`
+   - PRs without linked issues will not be merged
+
+### Issue Labels
+
+| Label | Description |
+|-------|-------------|
+| `proto` | Protocol buffer definitions |
+| `control-plane` | Control plane server |
+| `worker` | Worker daemon |
+| `scheduler` | Task scheduling logic |
+| `security` | mTLS, certificates, auth |
+| `obs` | Observability (metrics, logs) |
+| `docs` | Documentation |
+| `done` | Migrated from Linear as completed |
+
+### Before Starting Work
+
+1. Check the project board for prioritized issues
+2. Assign yourself to the issue
+3. Move the issue to "In Progress"
+4. Create a branch following the naming convention
+5. When done, create a PR linking the issue
+
 ## Development Guidelines
 
 ### Proto-First Development
