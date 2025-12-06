@@ -112,12 +112,12 @@ impl WorkerConnection {
 
     fn build_worker_info(&self) -> WorkerInfo {
         // Hardcoded agent for now
-        let backend = ModelBackend::new("anthropic", "claude-3-5-sonnet")
+        let backend = ModelBackend::new("anthropic", "claude-opus-4-5")
             .with_context_window(200_000)
             .with_modalities(vec!["text".to_string()]);
 
-        let agent = AgentSpec::new("echo-agent")
-            .with_description("Simple echo agent for testing")
+        let agent = AgentSpec::new("support_triage")
+            .with_description("Support ticket triage agent")
             .with_backend(backend);
 
         // Get hostname

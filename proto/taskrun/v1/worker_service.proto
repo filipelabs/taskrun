@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package taskrun.v1;
+
+import "taskrun/v1/common.proto";
+
+// ============================================================================
+// WorkerService - Query worker state and capabilities
+// ============================================================================
+
+service WorkerService {
+  // List all connected workers with optional filtering
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
+
+  // Get details for a specific worker
+  rpc GetWorker(GetWorkerRequest) returns (Worker);
+}
+
+// ============================================================================
+// Worker representation (runtime state + static info)
+// ============================================================================
+
+// A connected worker with its current state
+message Worker {
+  // Unique worker identifier
+  string worker_id = 1;
+
+  // Hostname of the worker machine
+  string hostname = 2;
+
+  // Worker binary version
+  string version = 3;
+
+  // Current status
+  WorkerStatus status = 4;
+
+  // Agents available on this worker
+  repeated AgentSpec agents = 5;
+
+  // Worker-level labels
+  map<string, string> labels = 6;
+
+  // Number of currently active runs
+  uint32 active_runs = 7;
+
+  // Maximum concurrent runs this worker can handle
+  uint32 max_concurrent_runs = 8;
+
+  // Timestamp of last heartbeat (Unix millis)
+  int64 last_heartbeat_ms = 9;
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+message ListWorkersRequest {
+  // Filter by agent name (optional)
+  optional string agent_name = 1;
+
+  // Filter by worker status (optional)
+  optional WorkerStatus status = 2;
+}
+
+message ListWorkersResponse {
+  // List of workers matching the filter
+  repeated Worker workers = 1;
+}
+
+message GetWorkerRequest {
+  // Worker ID to retrieve
+  string worker_id = 1;
+}

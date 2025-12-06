@@ -12,7 +12,7 @@ mod service;
 mod state;
 
 use config::Config;
-use service::{RunServiceImpl, TaskServiceImpl};
+use service::{RunServiceImpl, TaskServiceImpl, WorkerServiceImpl};
 use state::AppState;
 
 #[tokio::main]
@@ -35,12 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create services
     let run_service = RunServiceImpl::new(state.clone()).into_server();
-    let task_service = TaskServiceImpl::new(state).into_server();
+    let task_service = TaskServiceImpl::new(state.clone()).into_server();
+    let worker_service = WorkerServiceImpl::new(state).into_server();
 
     // Start server
     Server::builder()
         .add_service(run_service)
         .add_service(task_service)
+        .add_service(worker_service)
         .serve(addr)
         .await?;
 
