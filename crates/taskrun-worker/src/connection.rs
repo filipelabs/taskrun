@@ -177,8 +177,8 @@ async fn execute_fake_run(
 
     info!(run_id = %run_id, "Starting fake execution");
 
-    // Send RUNNING status
-    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running).await;
+    // Send RUNNING status (no backend yet)
+    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
 
     // Simulate work with fake output chunks
     for i in 0..3 {
@@ -191,8 +191,19 @@ async fn execute_fake_run(
     tokio::time::sleep(Duration::from_millis(500)).await;
     send_output_chunk(&tx, &run_id, 3, "Execution completed successfully.".to_string(), true).await;
 
-    // Send COMPLETED status
-    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Completed).await;
+    // Build the backend info that was used
+    let backend_used = taskrun_proto::pb::ModelBackend {
+        provider: "anthropic".to_string(),
+        model_name: "claude-opus-4-5".to_string(),
+        context_window: 200_000,
+        supports_streaming: true,
+        modalities: vec!["text".to_string()],
+        tools: vec![],
+        metadata: std::collections::HashMap::new(),
+    };
+
+    // Send COMPLETED status with backend_used
+    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Completed, Some(backend_used)).await;
 
     // Decrement active run count
     active_count.fetch_sub(1, Ordering::SeqCst);
@@ -205,12 +216,13 @@ async fn send_status_update(
     tx: &mpsc::Sender<RunClientMessage>,
     run_id: &str,
     status: taskrun_proto::pb::RunStatus,
+    backend_used: Option<taskrun_proto::pb::ModelBackend>,
 ) {
     let update = RunStatusUpdate {
         run_id: run_id.to_string(),
         status: status as i32,
         error_message: String::new(),
-        backend_used: None,
+        backend_used,
         timestamp_ms: chrono::Utc::now().timestamp_millis(),
     };
 

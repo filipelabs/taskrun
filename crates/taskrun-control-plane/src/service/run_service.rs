@@ -207,6 +207,11 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                     run.error_message = Some(update.error_message.clone());
                 }
 
+                // Update backend_used if present
+                if let Some(backend) = &update.backend_used {
+                    run.backend_used = Some(backend.clone().into());
+                }
+
                 // Capture worker_id before we might need to drop the lock
                 let worker_id = run.worker_id.clone();
                 let task_id = task.id.clone();
