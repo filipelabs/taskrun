@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package taskrun.v1;
+
+// ============================================================================
+// Status Enums
+// ============================================================================
+
+// Status of a Task in the control plane
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_PENDING = 1;
+  TASK_STATUS_RUNNING = 2;
+  TASK_STATUS_COMPLETED = 3;
+  TASK_STATUS_FAILED = 4;
+  TASK_STATUS_CANCELLED = 5;
+}
+
+// Status of a Run on a worker
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  RUN_STATUS_PENDING = 1;
+  RUN_STATUS_ASSIGNED = 2;
+  RUN_STATUS_RUNNING = 3;
+  RUN_STATUS_COMPLETED = 4;
+  RUN_STATUS_FAILED = 5;
+  RUN_STATUS_CANCELLED = 6;
+}
+
+// Worker availability status
+enum WorkerStatus {
+  WORKER_STATUS_UNSPECIFIED = 0;
+  WORKER_STATUS_IDLE = 1;
+  WORKER_STATUS_BUSY = 2;
+  WORKER_STATUS_DRAINING = 3;
+  WORKER_STATUS_ERROR = 4;
+}
+
+// ============================================================================
+// Model Backend
+// ============================================================================
+
+// Represents a model backend available on a worker
+message ModelBackend {
+  // Provider name (e.g., "anthropic", "openai", "ollama", "vllm")
+  string provider = 1;
+
+  // Model name (e.g., "claude-3-5-sonnet", "gpt-4o")
+  string model_name = 2;
+
+  // Context window size in tokens
+  uint32 context_window = 3;
+
+  // Whether streaming is supported
+  bool supports_streaming = 4;
+
+  // Supported modalities (e.g., "text", "vision", "audio")
+  repeated string modalities = 5;
+
+  // Available tool names
+  repeated string tools = 6;
+
+  // Additional provider-specific metadata
+  map<string, string> metadata = 7;
+}
+
+// ============================================================================
+// Agent Specification
+// ============================================================================
+
+// Specification of an agent available on a worker
+message AgentSpec {
+  // Unique agent name within the worker
+  string name = 1;
+
+  // Human-readable description
+  string description = 2;
+
+  // Agent-specific labels/tags
+  map<string, string> labels = 3;
+
+  // Model backends this agent can use
+  repeated ModelBackend backends = 4;
+}
+
+// ============================================================================
+// Worker Information
+// ============================================================================
+
+// Information about a worker's capabilities
+message WorkerInfo {
+  // Unique worker identifier
+  string worker_id = 1;
+
+  // Hostname of the worker machine
+  string hostname = 2;
+
+  // Worker binary version
+  string version = 3;
+
+  // Agents available on this worker
+  repeated AgentSpec agents = 4;
+
+  // Worker-level labels (region, hardware, tenant, etc.)
+  map<string, string> labels = 5;
+}

@@ -1,0 +1,16 @@
+[package]
+name = "taskrun-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Generated gRPC code and converters for TaskRun"
+
+[dependencies]
+taskrun-core = { path = "../taskrun-core" }
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true

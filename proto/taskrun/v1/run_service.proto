@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package taskrun.v1;
+
+import "taskrun/v1/common.proto";
+
+// ============================================================================
+// RunService - Bidirectional streaming between control plane and workers
+// ============================================================================
+
+service RunService {
+  // Bidirectional streaming connection for worker communication
+  // Workers connect and maintain a persistent stream for:
+  // - Announcing capabilities (WorkerHello)
+  // - Receiving run assignments (RunAssignment)
+  // - Streaming output (RunOutputChunk)
+  // - Reporting status (RunStatusUpdate)
+  // - Health checks (WorkerHeartbeat)
+  rpc StreamConnect(stream RunClientMessage) returns (stream RunServerMessage);
+}
+
+// ============================================================================
+// Client -> Server Messages (Worker -> Control Plane)
+// ============================================================================
+
+// Wrapper for all messages from worker to control plane
+message RunClientMessage {
+  oneof payload {
+    WorkerHello hello = 1;
+    WorkerHeartbeat heartbeat = 2;
+    RunStatusUpdate status_update = 3;
+    RunOutputChunk output_chunk = 4;
+  }
+}
+
+// Initial message from worker announcing its capabilities
+message WorkerHello {
+  // Worker information and capabilities
+  WorkerInfo info = 1;
+}
+
+// Periodic heartbeat from worker
+message WorkerHeartbeat {
+  // Worker identifier
+  string worker_id = 1;
+
+  // Current worker status
+  WorkerStatus status = 2;
+
+  // Number of active runs on this worker
+  uint32 active_runs = 3;
+
+  // Maximum concurrent runs this worker can handle
+  uint32 max_concurrent_runs = 4;
+
+  // Custom metrics (cpu_usage, memory_mb, etc.)
+  map<string, string> metrics = 5;
+
+  // Unix timestamp (milliseconds) when heartbeat was sent
+  int64 timestamp_ms = 6;
+}
+
+// Status update for a run
+message RunStatusUpdate {
+  // Run identifier
+  string run_id = 1;
+
+  // New status
+  RunStatus status = 2;
+
+  // Error message (populated when status is FAILED)
+  string error_message = 3;
+
+  // Model backend actually used for this run
+  ModelBackend backend_used = 4;
+
+  // Unix timestamp (milliseconds) of this update
+  int64 timestamp_ms = 5;
+}
+
+// Streaming output chunk from a run
+message RunOutputChunk {
+  // Run identifier
+  string run_id = 1;
+
+  // Sequence number for ordering (0-indexed)
+  uint64 seq = 2;
+
+  // Content of this chunk (text tokens, etc.)
+  string content = 3;
+
+  // Whether this is the final chunk
+  bool is_final = 4;
+
+  // Chunk metadata (role, content_type, etc.)
+  map<string, string> metadata = 5;
+
+  // Unix timestamp (milliseconds) when chunk was produced
+  int64 timestamp_ms = 6;
+}
+
+// ============================================================================
+// Server -> Client Messages (Control Plane -> Worker)
+// ============================================================================
+
+// Wrapper for all messages from control plane to worker
+message RunServerMessage {
+  oneof payload {
+    RunAssignment assign_run = 1;
+    CancelRun cancel_run = 2;
+    ServerAck ack = 3;
+  }
+}
+
+// Assignment of a run to a worker
+message RunAssignment {
+  // Unique run identifier
+  string run_id = 1;
+
+  // Associated task identifier
+  string task_id = 2;
+
+  // Name of agent to execute
+  string agent_name = 3;
+
+  // Input payload as JSON string
+  string input_json = 4;
+
+  // Task/run labels
+  map<string, string> labels = 5;
+
+  // Unix timestamp (milliseconds) when assignment was issued
+  int64 issued_at_ms = 6;
+
+  // Optional deadline for the run (Unix timestamp ms, 0 = no deadline)
+  int64 deadline_ms = 7;
+}
+
+// Request to cancel an in-progress run
+message CancelRun {
+  // Run identifier to cancel
+  string run_id = 1;
+
+  // Reason for cancellation
+  string reason = 2;
+}
+
+// Server acknowledgment (optional, for protocol reliability)
+message ServerAck {
+  // Type of message being acknowledged
+  string ack_type = 1;
+
+  // Relevant identifier (run_id, etc.)
+  string ref_id = 2;
+}

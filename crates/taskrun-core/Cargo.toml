@@ -1,0 +1,13 @@
+[package]
+name = "taskrun-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core domain types for TaskRun - no network/DB dependencies"
+
+[dependencies]
+thiserror.workspace = true
+chrono.workspace = true
+serde.workspace = true
+uuid.workspace = true
