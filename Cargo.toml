@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/taskrun-core",
     "crates/taskrun-proto",
+    "crates/taskrun-control-plane",
+    "crates/taskrun-worker",
 ]
 
 [workspace.package]
@@ -20,6 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 
 # Async runtime
 tokio = { version = "1.43", features = ["full"] }
+tokio-stream = "0.1"
 async-trait = "0.1"
 
 # gRPC/Protobuf

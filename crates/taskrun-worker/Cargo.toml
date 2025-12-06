@@ -1,0 +1,29 @@
+[package]
+name = "taskrun-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TaskRun worker daemon"
+
+[[bin]]
+name = "taskrun-worker"
+path = "src/main.rs"
+
+[dependencies]
+taskrun-core = { path = "../taskrun-core" }
+taskrun-proto = { path = "../taskrun-proto" }
+
+# Async runtime
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# gRPC
+tonic.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Utilities
+chrono.workspace = true
