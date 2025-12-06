@@ -1,0 +1,173 @@
+//! TaskService implementation for the control plane.
+
+use std::sync::Arc;
+
+use tonic::{Request, Response, Status};
+use tracing::{info, warn};
+
+use taskrun_core::{Task, TaskId, TaskStatus};
+use taskrun_proto::pb::{
+    CancelTaskRequest, CreateTaskRequest, GetTaskRequest, ListTasksRequest, ListTasksResponse,
+};
+use taskrun_proto::{TaskService, TaskServiceServer};
+
+use crate::scheduler::Scheduler;
+use crate::state::AppState;
+
+/// TaskService implementation.
+pub struct TaskServiceImpl {
+    state: Arc<AppState>,
+    scheduler: Scheduler,
+}
+
+impl TaskServiceImpl {
+    /// Create a new TaskServiceImpl.
+    pub fn new(state: Arc<AppState>) -> Self {
+        let scheduler = Scheduler::new(state.clone());
+        Self { state, scheduler }
+    }
+
+    /// Convert into a tonic server.
+    pub fn into_server(self) -> TaskServiceServer<Self> {
+        TaskServiceServer::new(self)
+    }
+}
+
+#[tonic::async_trait]
+impl TaskService for TaskServiceImpl {
+    async fn create_task(
+        &self,
+        request: Request<CreateTaskRequest>,
+    ) -> Result<Response<taskrun_proto::pb::Task>, Status> {
+        let req = request.into_inner();
+
+        // Validate request
+        if req.agent_name.is_empty() {
+            return Err(Status::invalid_argument("agent_name is required"));
+        }
+
+        // Create task
+        let mut task = Task::new(&req.agent_name, &req.input_json, &req.created_by);
+        for (k, v) in req.labels {
+            task.labels.insert(k, v);
+        }
+
+        let task_id = task.id.clone();
+
+        info!(
+            task_id = %task_id,
+            agent = %req.agent_name,
+            created_by = %req.created_by,
+            "Creating task"
+        );
+
+        // Store task
+        self.state.tasks.write().await.insert(task_id.clone(), task);
+
+        // Try to schedule immediately
+        match self.scheduler.assign_task(&task_id).await {
+            Ok(run_id) => {
+                info!(task_id = %task_id, run_id = %run_id, "Task assigned to worker");
+            }
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Failed to assign task (no workers available?)");
+                // Task stays PENDING, could be picked up later
+            }
+        }
+
+        // Return current task state
+        let task = self
+            .state
+            .tasks
+            .read()
+            .await
+            .get(&task_id)
+            .cloned()
+            .ok_or_else(|| Status::internal("Task disappeared after creation"))?;
+
+        Ok(Response::new(task.into()))
+    }
+
+    async fn get_task(
+        &self,
+        request: Request<GetTaskRequest>,
+    ) -> Result<Response<taskrun_proto::pb::Task>, Status> {
+        let req = request.into_inner();
+        let task_id = TaskId::new(&req.id);
+
+        let task = self
+            .state
+            .tasks
+            .read()
+            .await
+            .get(&task_id)
+            .cloned()
+            .ok_or_else(|| Status::not_found(format!("Task not found: {}", req.id)))?;
+
+        Ok(Response::new(task.into()))
+    }
+
+    async fn list_tasks(
+        &self,
+        request: Request<ListTasksRequest>,
+    ) -> Result<Response<ListTasksResponse>, Status> {
+        let req = request.into_inner();
+        let limit = if req.limit > 0 { req.limit as usize } else { 100 };
+
+        let tasks = self.state.tasks.read().await;
+
+        let filtered: Vec<taskrun_proto::pb::Task> = tasks
+            .values()
+            .filter(|task| {
+                // Status filter
+                if req.status_filter != 0 {
+                    let filter_status: TaskStatus =
+                        taskrun_proto::pb::TaskStatus::try_from(req.status_filter)
+                            .unwrap_or(taskrun_proto::pb::TaskStatus::Unspecified)
+                            .into();
+                    if task.status != filter_status {
+                        return false;
+                    }
+                }
+                // Agent filter
+                if !req.agent_filter.is_empty() && task.agent_name != req.agent_filter {
+                    return false;
+                }
+                true
+            })
+            .take(limit)
+            .cloned()
+            .map(Into::into)
+            .collect();
+
+        Ok(Response::new(ListTasksResponse { tasks: filtered }))
+    }
+
+    async fn cancel_task(
+        &self,
+        request: Request<CancelTaskRequest>,
+    ) -> Result<Response<taskrun_proto::pb::Task>, Status> {
+        let req = request.into_inner();
+        let task_id = TaskId::new(&req.id);
+
+        let mut tasks = self.state.tasks.write().await;
+        let task = tasks
+            .get_mut(&task_id)
+            .ok_or_else(|| Status::not_found(format!("Task not found: {}", req.id)))?;
+
+        // Check if cancellable
+        if task.is_terminal() {
+            return Err(Status::failed_precondition(format!(
+                "Task {} is already in terminal state: {:?}",
+                req.id, task.status
+            )));
+        }
+
+        info!(task_id = %task_id, "Cancelling task");
+        task.status = TaskStatus::Cancelled;
+
+        // TODO: Send CancelRun to workers executing this task's runs
+
+        Ok(Response::new(task.clone().into()))
+    }
+}

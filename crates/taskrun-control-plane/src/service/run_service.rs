@@ -9,10 +9,11 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
-use taskrun_core::{WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{RunId, RunStatus, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunServerMessage, WorkerHeartbeat, WorkerHello,
+    RunClientMessage, RunOutputChunk, RunServerMessage, RunStatusUpdate, WorkerHeartbeat,
+    WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
@@ -76,19 +77,10 @@ impl RunService for RunServiceImpl {
                                     handle_heartbeat(&state_clone, hb).await;
                                 }
                                 ClientPayload::StatusUpdate(update) => {
-                                    info!(
-                                        run_id = %update.run_id,
-                                        status = update.status,
-                                        "Run status update received"
-                                    );
+                                    handle_status_update(&state_clone, update).await;
                                 }
                                 ClientPayload::OutputChunk(chunk) => {
-                                    info!(
-                                        run_id = %chunk.run_id,
-                                        seq = chunk.seq,
-                                        is_final = chunk.is_final,
-                                        "Output chunk received"
-                                    );
+                                    handle_output_chunk(&state_clone, chunk).await;
                                 }
                             }
                         }
@@ -180,4 +172,100 @@ async fn handle_heartbeat(state: &Arc<AppState>, hb: WorkerHeartbeat) {
     } else {
         warn!(worker_id = %hb.worker_id, "Heartbeat from unknown worker");
     }
+}
+
+async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
+    let run_id = RunId::new(&update.run_id);
+
+    // Convert proto status to domain status
+    let run_status: RunStatus = taskrun_proto::pb::RunStatus::try_from(update.status)
+        .unwrap_or(taskrun_proto::pb::RunStatus::Unspecified)
+        .into();
+
+    info!(
+        run_id = %run_id,
+        status = ?run_status,
+        "Run status update received"
+    );
+
+    // Find the task containing this run and update it
+    let mut tasks = state.tasks.write().await;
+    for task in tasks.values_mut() {
+        for run in &mut task.runs {
+            if run.run_id == run_id {
+                run.status = run_status;
+
+                // Update timestamps
+                if run_status == RunStatus::Running {
+                    run.started_at = Some(chrono::Utc::now());
+                } else if run_status.is_terminal() {
+                    run.finished_at = Some(chrono::Utc::now());
+                }
+
+                // Update error message if present
+                if !update.error_message.is_empty() {
+                    run.error_message = Some(update.error_message.clone());
+                }
+
+                // Capture worker_id before we might need to drop the lock
+                let worker_id = run.worker_id.clone();
+                let task_id = task.id.clone();
+
+                // Update task status based on run status
+                match run_status {
+                    RunStatus::Running => {
+                        if task.status == TaskStatus::Pending {
+                            task.status = TaskStatus::Running;
+                        }
+                    }
+                    RunStatus::Completed => {
+                        task.status = TaskStatus::Completed;
+                        info!(task_id = %task_id, "Task completed");
+                    }
+                    RunStatus::Failed => {
+                        task.status = TaskStatus::Failed;
+                        info!(task_id = %task_id, "Task failed");
+                    }
+                    RunStatus::Cancelled => {
+                        task.status = TaskStatus::Cancelled;
+                        info!(task_id = %task_id, "Task cancelled");
+                    }
+                    _ => {}
+                }
+
+                // Decrement worker's active_runs if terminal
+                if run_status.is_terminal() {
+                    drop(tasks); // Release lock before acquiring workers lock
+                    let mut workers = state.workers.write().await;
+                    if let Some(worker) = workers.get_mut(&worker_id) {
+                        if worker.active_runs > 0 {
+                            worker.active_runs -= 1;
+                        }
+                    }
+                }
+
+                return;
+            }
+        }
+    }
+
+    warn!(run_id = %update.run_id, "Status update for unknown run");
+}
+
+async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
+    info!(
+        run_id = %chunk.run_id,
+        seq = chunk.seq,
+        is_final = chunk.is_final,
+        content_len = chunk.content.len(),
+        "Output chunk received"
+    );
+
+    // For now, just log the chunk. In a real implementation, we would:
+    // - Store output chunks for later retrieval
+    // - Stream to connected clients watching the task
+    // - Aggregate for final output
+
+    // Mark the state as used to avoid warning
+    let _ = state;
 }

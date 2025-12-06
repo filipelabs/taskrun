@@ -1,0 +1,118 @@
+// TaskService - Client-facing API for task management.
+
+syntax = "proto3";
+
+package taskrun.v1;
+
+import "taskrun/v1/common.proto";
+
+// TaskService provides the client-facing API for creating and managing tasks.
+service TaskService {
+  // Create a new task to be executed by an agent.
+  rpc CreateTask(CreateTaskRequest) returns (Task);
+
+  // Get a task by ID.
+  rpc GetTask(GetTaskRequest) returns (Task);
+
+  // List tasks with optional filtering.
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
+  // Cancel a running or pending task.
+  rpc CancelTask(CancelTaskRequest) returns (Task);
+}
+
+// Task represents a unit of work to be executed by an agent.
+message Task {
+  // Unique task identifier.
+  string id = 1;
+
+  // Name of the agent to execute this task.
+  string agent_name = 2;
+
+  // Input data as JSON string.
+  string input_json = 3;
+
+  // Current status of the task.
+  TaskStatus status = 4;
+
+  // Who created this task.
+  string created_by = 5;
+
+  // Creation timestamp in milliseconds since epoch.
+  int64 created_at_ms = 6;
+
+  // Optional labels for filtering/routing.
+  map<string, string> labels = 7;
+
+  // Runs associated with this task.
+  repeated RunSummary runs = 8;
+}
+
+// RunSummary provides a summary of a run's execution.
+message RunSummary {
+  // Unique run identifier.
+  string run_id = 1;
+
+  // Worker that executed/is executing this run.
+  string worker_id = 2;
+
+  // Current status of the run.
+  RunStatus status = 3;
+
+  // When the run started (milliseconds since epoch).
+  int64 started_at_ms = 4;
+
+  // When the run finished (milliseconds since epoch).
+  int64 finished_at_ms = 5;
+
+  // Model backend used for execution.
+  ModelBackend backend_used = 6;
+
+  // Error message if the run failed.
+  string error_message = 7;
+}
+
+// Request to create a new task.
+message CreateTaskRequest {
+  // Name of the agent to execute this task.
+  string agent_name = 1;
+
+  // Input data as JSON string.
+  string input_json = 2;
+
+  // Who is creating this task.
+  string created_by = 3;
+
+  // Optional labels for filtering/routing.
+  map<string, string> labels = 4;
+}
+
+// Request to get a task by ID.
+message GetTaskRequest {
+  // Task ID to retrieve.
+  string id = 1;
+}
+
+// Request to list tasks.
+message ListTasksRequest {
+  // Filter by status (optional, 0 = no filter).
+  TaskStatus status_filter = 1;
+
+  // Filter by agent name (optional, empty = no filter).
+  string agent_filter = 2;
+
+  // Maximum number of tasks to return.
+  int32 limit = 3;
+}
+
+// Response containing a list of tasks.
+message ListTasksResponse {
+  // List of tasks matching the filter criteria.
+  repeated Task tasks = 1;
+}
+
+// Request to cancel a task.
+message CancelTaskRequest {
+  // Task ID to cancel.
+  string id = 1;
+}

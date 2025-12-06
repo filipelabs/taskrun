@@ -6,7 +6,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::{mpsc, RwLock};
 
-use taskrun_core::{WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
 /// Represents a connected worker's state.
@@ -35,6 +35,9 @@ pub struct ConnectedWorker {
 pub struct AppState {
     /// Connected workers indexed by WorkerId.
     pub workers: RwLock<HashMap<WorkerId, ConnectedWorker>>,
+
+    /// Tasks indexed by TaskId.
+    pub tasks: RwLock<HashMap<TaskId, Task>>,
 }
 
 impl AppState {
@@ -42,6 +45,7 @@ impl AppState {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             workers: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::new()),
         })
     }
 
@@ -50,12 +54,19 @@ impl AppState {
     pub async fn worker_count(&self) -> usize {
         self.workers.read().await.len()
     }
+
+    /// Get the number of tasks.
+    #[allow(dead_code)]
+    pub async fn task_count(&self) -> usize {
+        self.tasks.read().await.len()
+    }
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
             workers: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::new()),
         }
     }
 }

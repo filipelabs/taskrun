@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_files = [
         proto_dir.join("taskrun/v1/common.proto"),
         proto_dir.join("taskrun/v1/run_service.proto"),
+        proto_dir.join("taskrun/v1/task_service.proto"),
     ];
 
     // Tell Cargo to rerun if proto files change

@@ -1,8 +1,10 @@
 //! Converters between proto types and domain types.
 
 use crate::pb;
+use chrono::{TimeZone, Utc};
 use taskrun_core::{
-    AgentSpec, ModelBackend, RunStatus, TaskStatus, WorkerId, WorkerInfo, WorkerStatus,
+    AgentSpec, ModelBackend, RunId, RunStatus, RunSummary, Task, TaskId, TaskStatus, WorkerId,
+    WorkerInfo, WorkerStatus,
 };
 
 // ============================================================================
@@ -174,6 +176,95 @@ impl From<pb::WorkerInfo> for WorkerInfo {
             version: proto.version,
             agents: proto.agents.into_iter().map(Into::into).collect(),
             labels: proto.labels,
+        }
+    }
+}
+
+// ============================================================================
+// Task conversions
+// ============================================================================
+
+impl From<Task> for pb::Task {
+    fn from(task: Task) -> Self {
+        pb::Task {
+            id: task.id.into_inner(),
+            agent_name: task.agent_name,
+            input_json: task.input_json,
+            status: pb::TaskStatus::from(task.status).into(),
+            created_by: task.created_by,
+            created_at_ms: task.created_at.timestamp_millis(),
+            labels: task.labels,
+            runs: task.runs.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<pb::Task> for Task {
+    fn from(proto: pb::Task) -> Self {
+        let status = pb::TaskStatus::try_from(proto.status)
+            .unwrap_or(pb::TaskStatus::Unspecified)
+            .into();
+
+        Task {
+            id: TaskId::new(proto.id),
+            agent_name: proto.agent_name,
+            input_json: proto.input_json,
+            status,
+            created_by: proto.created_by,
+            created_at: Utc
+                .timestamp_millis_opt(proto.created_at_ms)
+                .single()
+                .unwrap_or_else(Utc::now),
+            labels: proto.labels,
+            runs: proto.runs.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+// ============================================================================
+// RunSummary conversions
+// ============================================================================
+
+impl From<RunSummary> for pb::RunSummary {
+    fn from(run: RunSummary) -> Self {
+        pb::RunSummary {
+            run_id: run.run_id.into_inner(),
+            worker_id: run.worker_id.into_inner(),
+            status: pb::RunStatus::from(run.status).into(),
+            started_at_ms: run.started_at.map(|t| t.timestamp_millis()).unwrap_or(0),
+            finished_at_ms: run.finished_at.map(|t| t.timestamp_millis()).unwrap_or(0),
+            backend_used: run.backend_used.map(Into::into),
+            error_message: run.error_message.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<pb::RunSummary> for RunSummary {
+    fn from(proto: pb::RunSummary) -> Self {
+        let status = pb::RunStatus::try_from(proto.status)
+            .unwrap_or(pb::RunStatus::Unspecified)
+            .into();
+
+        RunSummary {
+            run_id: RunId::new(proto.run_id),
+            worker_id: WorkerId::new(proto.worker_id),
+            status,
+            started_at: if proto.started_at_ms > 0 {
+                Utc.timestamp_millis_opt(proto.started_at_ms).single()
+            } else {
+                None
+            },
+            finished_at: if proto.finished_at_ms > 0 {
+                Utc.timestamp_millis_opt(proto.finished_at_ms).single()
+            } else {
+                None
+            },
+            backend_used: proto.backend_used.map(Into::into),
+            error_message: if proto.error_message.is_empty() {
+                None
+            } else {
+                Some(proto.error_message)
+            },
         }
     }
 }

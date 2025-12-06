@@ -962,6 +962,7 @@ dependencies = [
  "chrono",
  "taskrun-core",
  "taskrun-proto",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -983,6 +984,7 @@ dependencies = [
 name = "taskrun-proto"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "prost",
  "prost-types",
  "taskrun-core",

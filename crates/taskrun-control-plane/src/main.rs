@@ -7,11 +7,12 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod config;
+mod scheduler;
 mod service;
 mod state;
 
 use config::Config;
-use service::RunServiceImpl;
+use service::{RunServiceImpl, TaskServiceImpl};
 use state::AppState;
 
 #[tokio::main]
@@ -32,12 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create shared state
     let state = AppState::new();
 
-    // Create service
-    let run_service = RunServiceImpl::new(state).into_server();
+    // Create services
+    let run_service = RunServiceImpl::new(state.clone()).into_server();
+    let task_service = TaskServiceImpl::new(state).into_server();
 
     // Start server
     Server::builder()
         .add_service(run_service)
+        .add_service(task_service)
         .serve(addr)
         .await?;
 

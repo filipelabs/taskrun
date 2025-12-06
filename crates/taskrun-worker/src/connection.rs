@@ -1,6 +1,7 @@
 //! Connection management for the worker.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,7 +14,9 @@ use tracing::{info, warn};
 use taskrun_core::{AgentSpec, ModelBackend, WorkerInfo};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
-use taskrun_proto::pb::{RunClientMessage, WorkerHeartbeat, WorkerHello};
+use taskrun_proto::pb::{
+    RunClientMessage, RunOutputChunk, RunStatusUpdate, WorkerHeartbeat, WorkerHello,
+};
 use taskrun_proto::RunServiceClient;
 
 use crate::config::Config;
@@ -22,6 +25,7 @@ use crate::config::Config;
 pub struct WorkerConnection {
     config: Arc<Config>,
     outbound_tx: Option<mpsc::Sender<RunClientMessage>>,
+    active_run_count: Arc<AtomicU32>,
 }
 
 impl WorkerConnection {
@@ -30,6 +34,7 @@ impl WorkerConnection {
         Self {
             config,
             outbound_tx: None,
+            active_run_count: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -63,8 +68,9 @@ impl WorkerConnection {
         // Start heartbeat task
         let heartbeat_tx = tx.clone();
         let heartbeat_config = self.config.clone();
+        let heartbeat_run_count = self.active_run_count.clone();
         let heartbeat_handle = tokio::spawn(async move {
-            run_heartbeat_loop(heartbeat_tx, heartbeat_config).await;
+            run_heartbeat_loop(heartbeat_tx, heartbeat_config, heartbeat_run_count).await;
         });
 
         // Process incoming messages
@@ -130,9 +136,19 @@ impl WorkerConnection {
                         run_id = %assignment.run_id,
                         task_id = %assignment.task_id,
                         agent = %assignment.agent_name,
-                        "Received run assignment (not implemented yet)"
+                        "Received run assignment"
                     );
-                    // TODO: Actually execute the run (FIL-61)
+
+                    // Spawn fake execution
+                    if let Some(tx) = &self.outbound_tx {
+                        let tx = tx.clone();
+                        let run_id = assignment.run_id.clone();
+                        let active_count = self.active_run_count.clone();
+
+                        tokio::spawn(async move {
+                            execute_fake_run(tx, run_id, active_count).await;
+                        });
+                    }
                 }
                 ServerPayload::CancelRun(cancel) => {
                     info!(
@@ -140,7 +156,7 @@ impl WorkerConnection {
                         reason = %cancel.reason,
                         "Received cancel request"
                     );
-                    // TODO: Cancel the run
+                    // TODO: Cancel the run (would need to track JoinHandles)
                 }
                 ServerPayload::Ack(ack) => {
                     info!(ack_type = %ack.ack_type, ref_id = %ack.ref_id, "Received ack");
@@ -150,17 +166,111 @@ impl WorkerConnection {
     }
 }
 
-async fn run_heartbeat_loop(tx: mpsc::Sender<RunClientMessage>, config: Arc<Config>) {
+/// Execute a fake run - simulates agent execution with delays.
+async fn execute_fake_run(
+    tx: mpsc::Sender<RunClientMessage>,
+    run_id: String,
+    active_count: Arc<AtomicU32>,
+) {
+    // Increment active run count
+    active_count.fetch_add(1, Ordering::SeqCst);
+
+    info!(run_id = %run_id, "Starting fake execution");
+
+    // Send RUNNING status
+    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running).await;
+
+    // Simulate work with fake output chunks
+    for i in 0..3 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let content = format!("Processing step {}... This is simulated output from the agent.", i + 1);
+        send_output_chunk(&tx, &run_id, i, content, false).await;
+    }
+
+    // Send final chunk
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    send_output_chunk(&tx, &run_id, 3, "Execution completed successfully.".to_string(), true).await;
+
+    // Send COMPLETED status
+    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Completed).await;
+
+    // Decrement active run count
+    active_count.fetch_sub(1, Ordering::SeqCst);
+
+    info!(run_id = %run_id, "Fake execution completed");
+}
+
+/// Send a status update to the control plane.
+async fn send_status_update(
+    tx: &mpsc::Sender<RunClientMessage>,
+    run_id: &str,
+    status: taskrun_proto::pb::RunStatus,
+) {
+    let update = RunStatusUpdate {
+        run_id: run_id.to_string(),
+        status: status as i32,
+        error_message: String::new(),
+        backend_used: None,
+        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+    };
+
+    let msg = RunClientMessage {
+        payload: Some(ClientPayload::StatusUpdate(update)),
+    };
+
+    if tx.send(msg).await.is_err() {
+        warn!(run_id = %run_id, "Failed to send status update");
+    }
+}
+
+/// Send an output chunk to the control plane.
+async fn send_output_chunk(
+    tx: &mpsc::Sender<RunClientMessage>,
+    run_id: &str,
+    seq: u64,
+    content: String,
+    is_final: bool,
+) {
+    let chunk = RunOutputChunk {
+        run_id: run_id.to_string(),
+        seq,
+        content,
+        is_final,
+        metadata: HashMap::new(),
+        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+    };
+
+    let msg = RunClientMessage {
+        payload: Some(ClientPayload::OutputChunk(chunk)),
+    };
+
+    if tx.send(msg).await.is_err() {
+        warn!(run_id = %run_id, seq = seq, "Failed to send output chunk");
+    }
+}
+
+async fn run_heartbeat_loop(
+    tx: mpsc::Sender<RunClientMessage>,
+    config: Arc<Config>,
+    active_count: Arc<AtomicU32>,
+) {
     let interval = Duration::from_secs(config.heartbeat_interval_secs);
     let mut interval_timer = tokio::time::interval(interval);
 
     loop {
         interval_timer.tick().await;
 
+        let runs = active_count.load(Ordering::SeqCst);
+        let status = if runs > 0 {
+            taskrun_proto::pb::WorkerStatus::Busy
+        } else {
+            taskrun_proto::pb::WorkerStatus::Idle
+        };
+
         let heartbeat = WorkerHeartbeat {
             worker_id: config.worker_id.as_str().to_string(),
-            status: taskrun_proto::pb::WorkerStatus::Idle as i32,
-            active_runs: 0, // TODO: Track actual active runs
+            status: status as i32,
+            active_runs: runs,
             max_concurrent_runs: config.max_concurrent_runs,
             metrics: HashMap::new(),
             timestamp_ms: chrono::Utc::now().timestamp_millis(),

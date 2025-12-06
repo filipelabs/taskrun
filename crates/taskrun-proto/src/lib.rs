@@ -17,3 +17,5 @@ pub mod pb {
 // Re-export commonly used types
 pub use pb::run_service_client::RunServiceClient;
 pub use pb::run_service_server::{RunService, RunServiceServer};
+pub use pb::task_service_client::TaskServiceClient;
+pub use pb::task_service_server::{TaskService, TaskServiceServer};
