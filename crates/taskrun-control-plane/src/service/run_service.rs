@@ -182,17 +182,20 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
         .unwrap_or(taskrun_proto::pb::RunStatus::Unspecified)
         .into();
 
-    info!(
-        run_id = %run_id,
-        status = ?run_status,
-        "Run status update received"
-    );
-
     // Find the task containing this run and update it
     let mut tasks = state.tasks.write().await;
     for task in tasks.values_mut() {
         for run in &mut task.runs {
             if run.run_id == run_id {
+                // Log with full correlation
+                info!(
+                    task_id = %task.id,
+                    run_id = %run_id,
+                    worker_id = %run.worker_id,
+                    status = ?run_status,
+                    "Run status update"
+                );
+
                 run.status = run_status;
 
                 // Update timestamps
@@ -225,15 +228,15 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                     }
                     RunStatus::Completed => {
                         task.status = TaskStatus::Completed;
-                        info!(task_id = %task_id, "Task completed");
+                        info!(task_id = %task_id, run_id = %run_id, "Task completed");
                     }
                     RunStatus::Failed => {
                         task.status = TaskStatus::Failed;
-                        info!(task_id = %task_id, "Task failed");
+                        info!(task_id = %task_id, run_id = %run_id, "Task failed");
                     }
                     RunStatus::Cancelled => {
                         task.status = TaskStatus::Cancelled;
-                        info!(task_id = %task_id, "Task cancelled");
+                        info!(task_id = %task_id, run_id = %run_id, "Task cancelled");
                     }
                     _ => {}
                 }
@@ -258,19 +261,36 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
 }
 
 async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
-    info!(
-        run_id = %chunk.run_id,
-        seq = chunk.seq,
-        is_final = chunk.is_final,
-        content_len = chunk.content.len(),
-        "Output chunk received"
-    );
+    let run_id = RunId::new(&chunk.run_id);
+
+    // Find task_id for correlation
+    let task_id = {
+        let tasks = state.tasks.read().await;
+        tasks
+            .values()
+            .find(|t| t.runs.iter().any(|r| r.run_id == run_id))
+            .map(|t| t.id.clone())
+    };
+
+    if let Some(task_id) = task_id {
+        info!(
+            task_id = %task_id,
+            run_id = %chunk.run_id,
+            seq = chunk.seq,
+            is_final = chunk.is_final,
+            content_len = chunk.content.len(),
+            "Output chunk received"
+        );
+    } else {
+        warn!(
+            run_id = %chunk.run_id,
+            seq = chunk.seq,
+            "Output chunk for unknown run"
+        );
+    }
 
     // For now, just log the chunk. In a real implementation, we would:
     // - Store output chunks for later retrieval
     // - Stream to connected clients watching the task
     // - Aggregate for final output
-
-    // Mark the state as used to avoid warning
-    let _ = state;
 }
