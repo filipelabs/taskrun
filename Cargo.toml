@@ -7,6 +7,8 @@ members = [
     "crates/taskrun-worker",
     "crates/taskrun-cli",
     "crates/taskrun-claude-sdk",
+    "crates/taskrun-admin-client",
+    "crates/taskrun-tui",
     "devtools",
     "devtools/src-tauri",
 ]
@@ -59,3 +61,10 @@ sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
 pem = "3.0"
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
