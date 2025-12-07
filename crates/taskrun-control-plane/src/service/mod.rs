@@ -1,5 +1,6 @@
 //! gRPC service implementations.
 
+pub mod mtls;
 pub mod run_service;
 pub mod task_service;
 pub mod worker_service;

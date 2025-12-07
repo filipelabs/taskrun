@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use tokio::net::TcpListener;
-use tonic::transport::{Identity, Server, ServerTlsConfig};
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tracing::{info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -48,7 +48,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let identity = Identity::from_pem(cert, key);
-    let tls_config = ServerTlsConfig::new().identity(identity);
+
+    // Load CA certificate for client verification (mTLS)
+    let ca_cert_for_mtls = std::fs::read(&config.ca_cert_path).map_err(|e| {
+        format!(
+            "Failed to read CA certificate from '{}': {}. Run scripts/gen-dev-certs.sh first.",
+            config.ca_cert_path, e
+        )
+    })?;
+
+    // Configure TLS with mTLS (require client certificates signed by our CA)
+    let tls_config = ServerTlsConfig::new()
+        .identity(identity)
+        .client_ca_root(Certificate::from_pem(ca_cert_for_mtls));
+
+    info!("mTLS enabled - workers must present valid certificates");
 
     // Load CA for certificate signing (optional - enrollment won't work without it)
     let ca = match CertificateAuthority::from_files(

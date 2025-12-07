@@ -21,6 +21,12 @@ pub struct Config {
 
     /// Path to CA certificate for verifying control plane (CA pinning).
     pub tls_ca_cert_path: String,
+
+    /// Path to worker client certificate for mTLS (PEM format).
+    pub tls_cert_path: String,
+
+    /// Path to worker client private key for mTLS (PEM format).
+    pub tls_key_path: String,
 }
 
 impl Default for Config {
@@ -32,6 +38,8 @@ impl Default for Config {
             reconnect_delay_secs: 5,
             max_concurrent_runs: 10,
             tls_ca_cert_path: "certs/ca.crt".to_string(),
+            tls_cert_path: "certs/worker.crt".to_string(),
+            tls_key_path: "certs/worker.key".to_string(),
         }
     }
 }

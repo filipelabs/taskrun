@@ -17,6 +17,7 @@ use taskrun_proto::pb::{
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
+use crate::service::mtls::validate_worker_id_format;
 use crate::state::{AppState, ConnectedWorker};
 
 /// RunService implementation.
@@ -116,13 +117,23 @@ async fn handle_worker_hello(
         let info: WorkerInfo = info_proto.into();
         let worker_id = info.worker_id.clone();
 
+        // Validate worker_id format (mTLS ensures the worker has a valid cert)
+        if let Err(e) = validate_worker_id_format(&worker_id) {
+            error!(
+                worker_id = %worker_id,
+                error = %e,
+                "Worker ID validation failed"
+            );
+            return;
+        }
+
         let agent_names: Vec<&str> = info.agents.iter().map(|a| a.name.as_str()).collect();
         info!(
             worker_id = %worker_id,
             hostname = %info.hostname,
             version = %info.version,
             agents = ?agent_names,
-            "Worker connected"
+            "Worker authenticated via mTLS"
         );
 
         // Store worker_id for cleanup on disconnect
