@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use tonic::transport::Channel;
 
 use taskrun_proto::pb::{
-    CreateTaskRequest, GetTaskRequest, ListTasksRequest, ListWorkersRequest,
+    CancelTaskRequest, CreateTaskRequest, GetTaskRequest, ListTasksRequest, ListWorkersRequest,
 };
 use taskrun_proto::{TaskServiceClient, WorkerServiceClient};
 
@@ -49,6 +49,13 @@ enum Commands {
     /// List connected workers
     #[command(name = "list-workers")]
     ListWorkers,
+
+    /// Cancel a task
+    #[command(name = "cancel-task")]
+    CancelTask {
+        /// Task ID to cancel
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -71,6 +78,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::ListWorkers => {
             list_workers(channel).await?;
+        }
+        Commands::CancelTask { id } => {
+            cancel_task(channel, id).await?;
         }
     }
 
@@ -160,6 +170,20 @@ async fn list_workers(channel: Channel) -> Result<(), Box<dyn std::error::Error>
         let runs = format!("{}/{}", worker.active_runs, worker.max_concurrent_runs);
         println!("{:<36}  {:<10}  {:<10}  {}", worker.worker_id, status, runs, agents_str);
     }
+
+    Ok(())
+}
+
+async fn cancel_task(channel: Channel, id: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = TaskServiceClient::new(channel);
+
+    let request = CancelTaskRequest { id };
+
+    let response = client.cancel_task(request).await?;
+    let task = response.into_inner();
+
+    println!("Task cancelled:");
+    print_task(&task);
 
     Ok(())
 }

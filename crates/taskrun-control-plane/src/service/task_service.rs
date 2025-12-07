@@ -5,9 +5,11 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{info, warn};
 
-use taskrun_core::{Task, TaskId, TaskStatus};
+use taskrun_core::{RunStatus, Task, TaskId, TaskStatus};
+use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    CancelTaskRequest, CreateTaskRequest, GetTaskRequest, ListTasksRequest, ListTasksResponse,
+    CancelRun, CancelTaskRequest, CreateTaskRequest, GetTaskRequest, ListTasksRequest,
+    ListTasksResponse, RunServerMessage,
 };
 use taskrun_proto::{TaskService, TaskServiceServer};
 
@@ -150,24 +152,85 @@ impl TaskService for TaskServiceImpl {
         let req = request.into_inner();
         let task_id = TaskId::new(&req.id);
 
-        let mut tasks = self.state.tasks.write().await;
-        let task = tasks
-            .get_mut(&task_id)
-            .ok_or_else(|| Status::not_found(format!("Task not found: {}", req.id)))?;
+        // Collect runs to cancel (worker_id, run_id pairs)
+        let runs_to_cancel: Vec<_>;
+        let result_task: Task;
 
-        // Check if cancellable
-        if task.is_terminal() {
-            return Err(Status::failed_precondition(format!(
-                "Task {} is already in terminal state: {:?}",
-                req.id, task.status
-            )));
+        {
+            let mut tasks = self.state.tasks.write().await;
+            let task = tasks
+                .get_mut(&task_id)
+                .ok_or_else(|| Status::not_found(format!("Task not found: {}", req.id)))?;
+
+            // Check if cancellable
+            if task.is_terminal() {
+                return Err(Status::failed_precondition(format!(
+                    "Task {} is already in terminal state: {:?}",
+                    req.id, task.status
+                )));
+            }
+
+            info!(task_id = %task_id, "Cancelling task");
+
+            // Collect active runs
+            runs_to_cancel = task
+                .runs
+                .iter()
+                .filter(|r| r.status.is_active())
+                .map(|r| (r.worker_id.clone(), r.run_id.clone()))
+                .collect();
+
+            // Mark task and its runs as cancelled
+            task.status = TaskStatus::Cancelled;
+            for run in &mut task.runs {
+                if run.status.is_active() {
+                    run.status = RunStatus::Cancelled;
+                    run.finished_at = Some(chrono::Utc::now());
+                }
+            }
+
+            result_task = task.clone();
         }
 
-        info!(task_id = %task_id, "Cancelling task");
-        task.status = TaskStatus::Cancelled;
+        // Send CancelRun to workers (outside the tasks lock)
+        if !runs_to_cancel.is_empty() {
+            let workers = self.state.workers.read().await;
+            for (worker_id, run_id) in &runs_to_cancel {
+                if let Some(worker) = workers.get(worker_id) {
+                    let cancel_msg = RunServerMessage {
+                        payload: Some(ServerPayload::CancelRun(CancelRun {
+                            run_id: run_id.to_string(),
+                            reason: "Task cancelled by user".to_string(),
+                        })),
+                    };
 
-        // TODO: Send CancelRun to workers executing this task's runs
+                    if let Err(e) = worker.tx.send(cancel_msg).await {
+                        warn!(
+                            task_id = %task_id,
+                            run_id = %run_id,
+                            worker_id = %worker_id,
+                            error = %e,
+                            "Failed to send CancelRun to worker"
+                        );
+                    } else {
+                        info!(
+                            task_id = %task_id,
+                            run_id = %run_id,
+                            worker_id = %worker_id,
+                            "Sent CancelRun to worker"
+                        );
+                    }
+                } else {
+                    warn!(
+                        task_id = %task_id,
+                        run_id = %run_id,
+                        worker_id = %worker_id,
+                        "Worker not connected, cannot send CancelRun"
+                    );
+                }
+            }
+        }
 
-        Ok(Response::new(task.clone().into()))
+        Ok(Response::new(result_task.into()))
     }
 }
