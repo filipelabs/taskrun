@@ -10,6 +10,7 @@ use tracing_subscriber::FmtSubscriber;
 mod config;
 mod crypto;
 mod http;
+mod metrics;
 mod scheduler;
 mod service;
 mod state;
