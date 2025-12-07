@@ -2,12 +2,21 @@
 //!
 //! Provides terminal-based dashboards for monitoring TaskRun control plane and workers.
 
-use clap::{Parser, Subcommand};
 use std::error::Error;
+use std::time::Duration;
+
+use clap::{Parser, Subcommand};
+use tokio::sync::mpsc;
+use tracing::info;
 
 mod app;
+mod backend;
 mod event;
+mod state;
 mod ui;
+
+use app::App;
+use event::{BackendCommand, UiEvent};
 
 #[derive(Parser)]
 #[command(name = "taskrun-tui")]
@@ -60,14 +69,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     match cli.command {
         Commands::ControlPlane {
             endpoint,
-            http_endpoint,
+            http_endpoint: _,
             ca_cert,
             refresh,
         } => {
-            run_control_plane_tui(&endpoint, &http_endpoint, ca_cert.as_deref(), refresh)?;
+            run_control_plane_tui(&endpoint, ca_cert.as_deref(), refresh)?;
         }
-        Commands::Worker { endpoint } => {
-            run_worker_tui(&endpoint)?;
+        Commands::Worker { endpoint: _ } => {
+            // Worker TUI not yet implemented
+            eprintln!("Worker TUI not yet implemented");
         }
     }
 
@@ -75,34 +85,51 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_control_plane_tui(
-    _grpc_endpoint: &str,
-    _http_endpoint: &str,
-    _ca_cert: Option<&str>,
-    _refresh: u64,
+    grpc_endpoint: &str,
+    ca_cert: Option<&str>,
+    refresh: u64,
 ) -> Result<(), Box<dyn Error>> {
-    // Initialize terminal
+    info!(endpoint = %grpc_endpoint, refresh = refresh, "Starting control plane TUI");
+
+    // Read CA cert if provided
+    let ca_cert_bytes = if let Some(path) = ca_cert {
+        Some(std::fs::read(path)?)
+    } else {
+        None
+    };
+
+    // Create channels for UI <-> backend communication
+    let (ui_tx, ui_rx) = mpsc::channel::<UiEvent>(100);
+    let (cmd_tx, cmd_rx) = mpsc::channel::<BackendCommand>(100);
+
+    // Spawn background thread with its own tokio runtime
+    let endpoint = grpc_endpoint.to_string();
+    let refresh_duration = Duration::from_secs(refresh);
+    let bg_handle = std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        rt.block_on(backend::run_backend(
+            endpoint,
+            ca_cert_bytes,
+            refresh_duration,
+            ui_tx,
+            cmd_rx,
+        ));
+    });
+
+    // Initialize terminal (enters alternate screen, enables raw mode)
     let terminal = ratatui::init();
 
-    // Run app
-    let mut app = app::App::new();
+    // Run UI loop on main thread
+    let mut app = App::new(ui_rx, cmd_tx);
     let result = app.run(terminal);
 
-    // Restore terminal
+    // Restore terminal (exits alternate screen, disables raw mode)
     ratatui::restore();
 
-    result.map_err(|e| e.into())
-}
+    // Wait for background thread to finish
+    let _ = bg_handle.join();
 
-fn run_worker_tui(_endpoint: &str) -> Result<(), Box<dyn Error>> {
-    // Initialize terminal
-    let terminal = ratatui::init();
-
-    // Run app
-    let mut app = app::App::new();
-    let result = app.run(terminal);
-
-    // Restore terminal
-    ratatui::restore();
+    info!("TUI shutdown complete");
 
     result.map_err(|e| e.into())
 }

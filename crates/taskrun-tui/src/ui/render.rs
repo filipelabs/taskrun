@@ -6,10 +6,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 use ratatui::Frame;
 
-use crate::app::{App, View};
+use crate::state::{UiState, View};
 
 /// Render the entire UI.
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, state: &UiState) {
     let area = frame.area();
 
     // Create main layout: header, body, footer
@@ -21,20 +21,20 @@ pub fn render(frame: &mut Frame, app: &App) {
     .areas(area);
 
     // Render header with tabs
-    render_header(frame, header_area, app);
+    render_header(frame, header_area, state);
 
     // Render body based on current view
-    render_body(frame, body_area, app);
+    render_body(frame, body_area, state);
 
     // Render footer with status
-    render_footer(frame, footer_area, app);
+    render_footer(frame, footer_area, state);
 }
 
 /// Render the header with navigation tabs.
-fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) {
     let titles = vec!["[1] Workers", "[2] Tasks", "[3] Runs", "[4] Trace"];
 
-    let selected = match app.current_view {
+    let selected = match state.current_view {
         View::Workers => 0,
         View::Tasks => 1,
         View::Runs => 2,
@@ -64,10 +64,10 @@ fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 }
 
 /// Render the main body content.
-fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let content = match app.current_view {
-        View::Workers => render_workers_placeholder(),
-        View::Tasks => render_tasks_placeholder(),
+fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) {
+    let content = match state.current_view {
+        View::Workers => render_workers_view(state),
+        View::Tasks => render_tasks_view(state),
         View::Runs => render_runs_placeholder(),
         View::Trace => render_trace_placeholder(),
     };
@@ -76,13 +76,21 @@ fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 }
 
 /// Render the footer with status message.
-fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let status = app.status_message.as_deref().unwrap_or("Ready");
+fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) {
+    let status = state.status_message.as_deref().unwrap_or("Ready");
 
-    let help = " q: quit | Tab: next view | 1-4: switch view ";
+    let status_color = if state.last_error.is_some() {
+        Color::Red
+    } else if state.is_connected {
+        Color::Green
+    } else {
+        Color::Yellow
+    };
+
+    let help = " q: quit | Tab: next view | 1-4: switch view | r: refresh ";
 
     let footer = Line::from(vec![
-        Span::styled(status, Style::default().fg(Color::Green)),
+        Span::styled(status, Style::default().fg(status_color)),
         Span::raw(" | "),
         Span::styled(help, Style::default().fg(Color::DarkGray)),
     ]);
@@ -90,10 +98,10 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     frame.render_widget(Paragraph::new(footer), area);
 }
 
-// Placeholder renderers - will be replaced with real data in future issues
+// View renderers
 
-fn render_workers_placeholder() -> Paragraph<'static> {
-    let text = vec![
+fn render_workers_view(state: &UiState) -> Paragraph<'static> {
+    let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
             "  Workers View",
@@ -102,18 +110,30 @@ fn render_workers_placeholder() -> Paragraph<'static> {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("  No workers connected yet."),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  This view will show:",
-            Style::default().fg(Color::Yellow),
-        )),
-        Line::from("  - Worker ID, status, active runs"),
-        Line::from("  - Supported agents and models"),
-        Line::from("  - Connection time and last heartbeat"),
     ];
 
-    Paragraph::new(text).block(
+    if state.workers.is_empty() {
+        lines.push(Line::from("  No workers connected."));
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!("  {} worker(s) connected:", state.workers.len()),
+            Style::default().fg(Color::Green),
+        )));
+        lines.push(Line::from(""));
+
+        for worker in &state.workers {
+            let status = match worker.status {
+                0 => "UNKNOWN",
+                1 => "IDLE",
+                2 => "BUSY",
+                3 => "OFFLINE",
+                _ => "?",
+            };
+            lines.push(Line::from(format!("  - {} [{}]", worker.worker_id, status)));
+        }
+    }
+
+    Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" Workers ")
@@ -121,8 +141,8 @@ fn render_workers_placeholder() -> Paragraph<'static> {
     )
 }
 
-fn render_tasks_placeholder() -> Paragraph<'static> {
-    let text = vec![
+fn render_tasks_view(state: &UiState) -> Paragraph<'static> {
+    let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
             "  Tasks View",
@@ -131,18 +151,39 @@ fn render_tasks_placeholder() -> Paragraph<'static> {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("  No tasks created yet."),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  This view will show:",
-            Style::default().fg(Color::Yellow),
-        )),
-        Line::from("  - Task ID, agent, status"),
-        Line::from("  - Created/updated timestamps"),
-        Line::from("  - Number of runs per task"),
     ];
 
-    Paragraph::new(text).block(
+    if state.tasks.is_empty() {
+        lines.push(Line::from("  No tasks created."));
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!("  {} task(s):", state.tasks.len()),
+            Style::default().fg(Color::Green),
+        )));
+        lines.push(Line::from(""));
+
+        for task in &state.tasks {
+            let status = match task.status {
+                0 => "PENDING",
+                1 => "RUNNING",
+                2 => "COMPLETED",
+                3 => "FAILED",
+                4 => "CANCELLED",
+                _ => "?",
+            };
+            let short_id = if task.id.len() > 8 {
+                &task.id[..8]
+            } else {
+                &task.id
+            };
+            lines.push(Line::from(format!(
+                "  - {}... [{}] {}",
+                short_id, status, task.agent_name
+            )));
+        }
+    }
+
+    Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" Tasks ")

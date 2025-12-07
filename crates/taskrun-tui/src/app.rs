@@ -4,93 +4,151 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
+use tokio::sync::mpsc;
 
+use crate::event::{BackendCommand, UiEvent};
+use crate::state::{UiState, View};
 use crate::ui;
 
-/// Main application state.
+/// Main application with UI state and channel handles.
 pub struct App {
-    /// Whether the application should quit.
-    pub should_quit: bool,
+    /// Current UI state snapshot for rendering.
+    state: UiState,
 
-    /// Current view/tab.
-    pub current_view: View,
+    /// Receiver for events from the backend.
+    ui_rx: mpsc::Receiver<UiEvent>,
 
-    /// Status message to display.
-    pub status_message: Option<String>,
-}
-
-/// Available views in the TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum View {
-    #[default]
-    Workers,
-    Tasks,
-    Runs,
-    Trace,
+    /// Sender for commands to the backend.
+    cmd_tx: mpsc::Sender<BackendCommand>,
 }
 
 impl App {
-    /// Create a new application instance.
-    pub fn new() -> Self {
+    /// Create a new application instance with channel handles.
+    pub fn new(ui_rx: mpsc::Receiver<UiEvent>, cmd_tx: mpsc::Sender<BackendCommand>) -> Self {
         Self {
-            should_quit: false,
-            current_view: View::Workers,
-            status_message: Some("Press 'q' to quit, '1-4' to switch views".to_string()),
+            state: UiState {
+                status_message: Some("Connecting...".to_string()),
+                ..Default::default()
+            },
+            ui_rx,
+            cmd_tx,
         }
     }
 
     /// Run the main event loop.
+    ///
+    /// This runs on the main thread and handles:
+    /// - Drawing the UI
+    /// - Processing keyboard input
+    /// - Receiving updates from the backend
     pub fn run(&mut self, mut terminal: DefaultTerminal) -> std::io::Result<()> {
         loop {
             // Draw the UI
-            terminal.draw(|frame| ui::render(frame, self))?;
+            terminal.draw(|frame| ui::render(frame, &self.state))?;
 
-            // Handle events with a timeout for responsiveness
-            if event::poll(Duration::from_millis(100))? {
+            // Poll terminal events (non-blocking with short timeout)
+            if event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        self.handle_key(key.code);
+                    if key.kind == KeyEventKind::Press && self.handle_key(key.code) {
+                        break; // quit requested
                     }
                 }
             }
 
-            if self.should_quit {
+            // Process backend events (non-blocking)
+            while let Ok(event) = self.ui_rx.try_recv() {
+                if self.apply_event(event) {
+                    break; // quit requested
+                }
+            }
+
+            if self.state.should_quit() {
                 break;
             }
         }
 
+        // Send quit command to backend
+        let _ = self.cmd_tx.blocking_send(BackendCommand::Quit);
+
         Ok(())
     }
 
+    /// Apply an event from the backend to the UI state.
+    ///
+    /// Returns true if the app should quit.
+    fn apply_event(&mut self, event: UiEvent) -> bool {
+        match event {
+            UiEvent::Tick => {
+                // Could be used for animations
+            }
+            UiEvent::WorkersUpdated(workers) => {
+                self.state.workers = workers;
+                self.state.is_connected = true;
+                self.state.last_error = None;
+                self.update_status();
+            }
+            UiEvent::TasksUpdated(tasks) => {
+                self.state.tasks = tasks;
+                self.state.is_connected = true;
+                self.state.last_error = None;
+                self.update_status();
+            }
+            UiEvent::Error(msg) => {
+                self.state.last_error = Some(msg);
+                self.update_status();
+            }
+            UiEvent::Key(_key) => {
+                // Key events are handled directly in run()
+            }
+            UiEvent::Quit => {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Update the status message based on current state.
+    fn update_status(&mut self) {
+        if let Some(ref error) = self.state.last_error {
+            self.state.status_message = Some(format!("Error: {}", error));
+        } else if self.state.is_connected {
+            self.state.status_message = Some(format!(
+                "Connected | Workers: {} | Tasks: {}",
+                self.state.workers.len(),
+                self.state.tasks.len()
+            ));
+        } else {
+            self.state.status_message = Some("Connecting...".to_string());
+        }
+    }
+
     /// Handle a key press.
-    fn handle_key(&mut self, code: KeyCode) {
+    ///
+    /// Returns true if the app should quit.
+    fn handle_key(&mut self, code: KeyCode) -> bool {
         match code {
             // Quit
             KeyCode::Char('q') | KeyCode::Esc => {
-                self.should_quit = true;
+                return true;
             }
 
             // View switching
             KeyCode::Char('1') => {
-                self.current_view = View::Workers;
-                self.status_message = Some("Workers view".to_string());
+                self.state.current_view = View::Workers;
             }
             KeyCode::Char('2') => {
-                self.current_view = View::Tasks;
-                self.status_message = Some("Tasks view".to_string());
+                self.state.current_view = View::Tasks;
             }
             KeyCode::Char('3') => {
-                self.current_view = View::Runs;
-                self.status_message = Some("Runs view".to_string());
+                self.state.current_view = View::Runs;
             }
             KeyCode::Char('4') => {
-                self.current_view = View::Trace;
-                self.status_message = Some("Trace view".to_string());
+                self.state.current_view = View::Trace;
             }
 
             // Tab navigation
             KeyCode::Tab => {
-                self.current_view = match self.current_view {
+                self.state.current_view = match self.state.current_view {
                     View::Workers => View::Tasks,
                     View::Tasks => View::Runs,
                     View::Runs => View::Trace,
@@ -98,7 +156,7 @@ impl App {
                 };
             }
             KeyCode::BackTab => {
-                self.current_view = match self.current_view {
+                self.state.current_view = match self.state.current_view {
                     View::Workers => View::Trace,
                     View::Tasks => View::Workers,
                     View::Runs => View::Tasks,
@@ -106,13 +164,21 @@ impl App {
                 };
             }
 
+            // Refresh
+            KeyCode::Char('r') => {
+                let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshWorkers);
+                let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshTasks);
+            }
+
             _ => {}
         }
+        false
     }
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
+impl UiState {
+    /// Check if the app should quit (used for Ctrl+C handling).
+    fn should_quit(&self) -> bool {
+        false // Could be set by signal handler
     }
 }
