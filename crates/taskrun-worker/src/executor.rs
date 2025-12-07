@@ -14,7 +14,7 @@ use taskrun_claude_sdk::{
 };
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 /// Errors that can occur during agent execution.
 #[derive(Debug, Error)]
@@ -48,6 +48,7 @@ pub struct OutputChunk {
 struct StreamingHandler {
     output_tx: mpsc::Sender<OutputChunk>,
     session_id: Arc<Mutex<Option<String>>>,
+    model_used: Arc<Mutex<Option<String>>>,
 }
 
 impl StreamingHandler {
@@ -55,11 +56,16 @@ impl StreamingHandler {
         Self {
             output_tx,
             session_id: Arc::new(Mutex::new(None)),
+            model_used: Arc::new(Mutex::new(None)),
         }
     }
 
     fn session_id(&self) -> Option<String> {
         self.session_id.lock().unwrap().clone()
+    }
+
+    fn model_used(&self) -> Option<String> {
+        self.model_used.lock().unwrap().clone()
     }
 }
 
@@ -108,11 +114,15 @@ impl ControlHandler for StreamingHandler {
 
         match message {
             ClaudeMessage::System { session_id, model, .. } => {
-                // Capture session ID for future use
+                // Capture session ID and model for future use
                 info!(session_id = ?session_id, model = ?model, "System message received");
                 if let Some(sid) = session_id {
                     info!(session_id = %sid, "Captured session ID");
                     *self.session_id.lock().unwrap() = Some(sid);
+                }
+                if let Some(m) = model {
+                    info!(model = %m, "Captured model used");
+                    *self.model_used.lock().unwrap() = Some(m);
                 }
             }
             ClaudeMessage::Assistant { message, .. } => {
@@ -241,14 +251,16 @@ impl ClaudeCodeExecutor {
             .await;
 
         let session_id = handler.session_id();
+        // Use the real model from Claude's System message, fallback to SDK's placeholder
+        let model_used = handler.model_used().unwrap_or(result.model_used);
         info!(
             session_id = ?session_id,
-            model = %result.model_used,
+            model = %model_used,
             "Claude Code execution completed"
         );
 
         Ok(ExecutionResult {
-            model_used: result.model_used,
+            model_used,
             provider: "anthropic".to_string(),
             session_id,
         })
