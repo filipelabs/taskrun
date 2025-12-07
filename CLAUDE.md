@@ -75,11 +75,20 @@ service TaskService {
 }
 ```
 
-### RunService (Worker communication)
+### WorkerService (Query workers)
+
+```protobuf
+service WorkerService {
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
+  rpc GetWorker(GetWorkerRequest) returns (Worker);
+}
+```
+
+### RunService (Worker ↔ Control Plane streaming)
 
 ```protobuf
 service RunService {
-  rpc Connect(stream RunClientMessage) returns (stream RunServerMessage);
+  rpc StreamConnect(stream RunClientMessage) returns (stream RunServerMessage);
 }
 ```
 
@@ -90,7 +99,7 @@ service RunService {
 **Worker → Control plane:**
 - `WorkerHello` + `WorkerInfo` - Announce capabilities, agents, models
 - `WorkerHeartbeat` - Periodic health check
-- `RunStatusUpdate` - Status changes (RUNNING, COMPLETED, FAILED)
+- `RunStatusUpdate` - Status changes (RUNNING, COMPLETED, FAILED) + `backend_used`
 - `RunOutputChunk` - Streaming tokens/content
 
 ## Status Enums
@@ -170,9 +179,15 @@ All work is tracked in the GitHub Project:
 
 1. Check the project board for prioritized issues
 2. Assign yourself to the issue
-3. Move the issue to "In Progress"
+3. **Move the issue to "In Progress" on the project board** (required)
 4. Create a branch following the naming convention
-5. When done, create a PR linking the issue
+5. When done, close the issue (or create a PR linking the issue)
+
+### When Closing Issues
+
+- Always close issues with a comment explaining what was done
+- If the issue was already implemented, explain where/when
+- Reference the commit SHA if applicable
 
 ## Development Guidelines
 
