@@ -169,6 +169,7 @@ pub struct ErrorResponse {
 
 /// API errors with proper HTTP status codes and OpenAI-style error responses.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ApiError {
     // Client errors (4xx)
     /// Invalid JSON in request body.
@@ -723,12 +724,12 @@ fn build_input_json(req: &CreateResponseRequest) -> String {
             // Handle structured input (messages array)
             // For MVP, just extract text from the last user message
             arr.iter()
-                .filter_map(|item| {
+                .rev()
+                .find_map(|item| {
                     item.get("content")
                         .and_then(|c| c.as_str())
                         .map(String::from)
                 })
-                .last()
                 .unwrap_or_default()
         }
         _ => serde_json::to_string(&req.input).unwrap_or_default(),

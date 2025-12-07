@@ -8,7 +8,7 @@ use crate::api::{fetch_metrics, Metrics as MetricsData};
 #[component]
 pub fn Metrics() -> impl IntoView {
     let (metrics, set_metrics) = create_signal(MetricsData::default());
-    let (loading, set_loading) = create_signal(true);
+    let (_loading, set_loading) = create_signal(true);
     let (error, set_error) = create_signal::<Option<String>>(None);
 
     let fetch = move || {

@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 /// A bootstrap token stored in the control plane.
 /// We never store the plaintext token - only its SHA-256 hash.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BootstrapToken {
     /// SHA-256 hash of the token (hex encoded).
     pub token_hash: String,
@@ -26,6 +27,7 @@ pub struct BootstrapToken {
     pub consumed: bool,
 }
 
+#[allow(dead_code)]
 impl BootstrapToken {
     /// Create a new bootstrap token entry from a token hash.
     pub fn new(token_hash: String, validity_hours: u64) -> Self {
@@ -54,6 +56,7 @@ impl BootstrapToken {
 /// Returns a tuple of (plaintext_token, token_hash).
 /// The plaintext token should be given to the worker admin.
 /// The token_hash should be stored in the control plane.
+#[allow(dead_code)]
 pub fn generate_bootstrap_token() -> (String, String) {
     // Generate 256 bits (32 bytes) of random data
     let mut token_bytes = [0u8; 32];

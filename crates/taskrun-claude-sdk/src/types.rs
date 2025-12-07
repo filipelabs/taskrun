@@ -360,10 +360,11 @@ pub enum PermissionUpdateDestination {
 }
 
 /// Permission mode for Claude Code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionMode {
     /// Default mode - asks for permission.
+    #[default]
     Default,
     /// Accept file edits automatically.
     AcceptEdits,
@@ -371,12 +372,6 @@ pub enum PermissionMode {
     Plan,
     /// Bypass all permissions (dangerous).
     BypassPermissions,
-}
-
-impl Default for PermissionMode {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl std::fmt::Display for PermissionMode {

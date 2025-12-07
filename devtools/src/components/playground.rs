@@ -33,10 +33,10 @@ pub fn Playground() -> impl IntoView {
         // wrapped in Rc<RefCell> to update signals from the callback
         let output_buffer = Rc::new(RefCell::new(String::new()));
         let output_buffer_clone = output_buffer.clone();
-        let set_output_clone = set_output.clone();
-        let set_status_clone = set_status.clone();
-        let set_response_id_clone = set_response_id.clone();
-        let set_error_clone = set_error.clone();
+        let set_output_clone = set_output;
+        let set_status_clone = set_status;
+        let set_response_id_clone = set_response_id;
+        let set_error_clone = set_error;
 
         spawn_local(async move {
             let result = stream_response("general", &prompt_value, |event| match event {

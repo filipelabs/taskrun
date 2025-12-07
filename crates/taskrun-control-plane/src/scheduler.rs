@@ -36,6 +36,7 @@ impl Scheduler {
     }
 
     /// Select a worker that supports the given agent and has capacity.
+    #[allow(dead_code)]
     pub async fn select_worker(&self, agent_name: &str) -> Option<WorkerId> {
         let workers = self.state.workers.read().await;
 

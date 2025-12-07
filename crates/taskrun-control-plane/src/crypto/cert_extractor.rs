@@ -8,6 +8,7 @@ use x509_parser::prelude::*;
 
 /// Errors that can occur during certificate extraction.
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum CertExtractError {
     #[error("failed to parse certificate: {0}")]
     ParseError(String),
@@ -31,6 +32,7 @@ pub enum CertExtractError {
 ///
 /// # Returns
 /// The worker_id extracted from the CN (without the "worker:" prefix).
+#[allow(dead_code)]
 pub fn extract_worker_id_from_cert(cert_der: &[u8]) -> Result<String, CertExtractError> {
     // Parse the X.509 certificate
     let (_, cert) = X509Certificate::from_der(cert_der)
@@ -53,6 +55,7 @@ pub fn extract_worker_id_from_cert(cert_der: &[u8]) -> Result<String, CertExtrac
 }
 
 /// Extract Common Name from certificate subject.
+#[allow(dead_code)]
 fn extract_cn_from_subject(cert: &X509Certificate<'_>) -> Result<String, CertExtractError> {
     for rdn in cert.subject().iter() {
         for attr in rdn.iter() {

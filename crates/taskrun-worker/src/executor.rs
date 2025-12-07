@@ -179,20 +179,22 @@ impl ControlHandler for StreamingHandler {
             }
             ClaudeMessage::StreamEvent { event, .. } => {
                 // Handle streaming delta events for real-time token output
-                if let StreamEvent::ContentBlockDelta { delta, index } = event {
-                    if let ContentDelta::TextDelta { text } = delta {
-                        info!(
-                            text_len = text.len(),
-                            block_index = index,
-                            "Streaming text delta"
-                        );
-                        let chunk = OutputChunk {
-                            content: text,
-                            is_final: false,
-                        };
-                        if self.output_tx.send(chunk).await.is_err() {
-                            warn!("Failed to send output chunk - receiver dropped");
-                        }
+                if let StreamEvent::ContentBlockDelta {
+                    delta: ContentDelta::TextDelta { text },
+                    index,
+                } = event
+                {
+                    info!(
+                        text_len = text.len(),
+                        block_index = index,
+                        "Streaming text delta"
+                    );
+                    let chunk = OutputChunk {
+                        content: text,
+                        is_final: false,
+                    };
+                    if self.output_tx.send(chunk).await.is_err() {
+                        warn!("Failed to send output chunk - receiver dropped");
                     }
                 }
             }

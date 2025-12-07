@@ -17,6 +17,7 @@ use crate::crypto::{BootstrapToken, CertificateAuthority};
 
 /// Events sent through the streaming channel for SSE subscribers.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum StreamEvent {
     /// Output chunk from worker.
     OutputChunk {
@@ -134,6 +135,7 @@ impl AppState {
     }
 
     /// Get all events for a run.
+    #[allow(dead_code)]
     pub async fn get_events_by_run(&self, run_id: &RunId) -> Vec<RunEvent> {
         let events = self.events.read().await;
         events.get(run_id).cloned().unwrap_or_default()

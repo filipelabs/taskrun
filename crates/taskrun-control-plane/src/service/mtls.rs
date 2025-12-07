@@ -21,6 +21,7 @@ use tonic::Status;
 /// The actual certificate validation is done by tonic's TLS layer with
 /// `client_ca_root`. This function provides an additional format check
 /// to ensure the worker_id is consistent with what would be in the cert.
+#[allow(clippy::result_large_err)]
 pub fn validate_worker_id_format(worker_id: &WorkerId) -> Result<(), Status> {
     let id_str = worker_id.as_str();
 

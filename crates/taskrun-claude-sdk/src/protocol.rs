@@ -53,11 +53,13 @@ pub trait ControlHandler: Send + Sync {
 ///
 /// Manages the stdin/stdout streams and handles the control protocol
 /// message exchange.
+#[allow(dead_code)]
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
     initialized: Arc<Mutex<bool>>,
 }
 
+#[allow(dead_code)]
 impl ProtocolPeer {
     /// Spawn a new protocol peer and start the read loop.
     ///

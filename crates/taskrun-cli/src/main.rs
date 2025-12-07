@@ -153,10 +153,7 @@ async fn list_tasks(channel: Channel) -> Result<(), Box<dyn std::error::Error>> 
     let resp = response.into_inner();
 
     println!("Tasks ({}):", resp.tasks.len());
-    println!(
-        "{:<36}  {:<10}  {:<16}  {}",
-        "ID", "STATUS", "AGENT", "CREATED"
-    );
+    println!("{:<36}  {:<10}  {:<16}  CREATED", "ID", "STATUS", "AGENT");
     println!("{}", "-".repeat(80));
 
     for task in resp.tasks {
@@ -183,10 +180,7 @@ async fn list_workers(channel: Channel) -> Result<(), Box<dyn std::error::Error>
     let resp = response.into_inner();
 
     println!("Workers ({}):", resp.workers.len());
-    println!(
-        "{:<36}  {:<10}  {:<10}  {}",
-        "ID", "STATUS", "RUNS", "AGENTS"
-    );
+    println!("{:<36}  {:<10}  {:<10}  AGENTS", "ID", "STATUS", "RUNS");
     println!("{}", "-".repeat(80));
 
     for worker in resp.workers {

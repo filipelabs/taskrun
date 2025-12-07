@@ -5,6 +5,7 @@ mod cert_extractor;
 mod token;
 
 pub use ca::CertificateAuthority;
+#[allow(unused_imports)]
 pub use cert_extractor::{extract_worker_id_from_cert, CertExtractError};
 pub use token::{hash_token, BootstrapToken};
 
