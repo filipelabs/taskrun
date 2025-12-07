@@ -28,3 +28,18 @@ tracing-subscriber.workspace = true
 # Utilities
 chrono.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# HTTP server
+axum.workspace = true
+tower-http.workspace = true
+
+# Crypto
+rcgen.workspace = true
+x509-parser.workspace = true
+rand.workspace = true
+sha2.workspace = true
+base64.workspace = true
+hex.workspace = true
+pem.workspace = true

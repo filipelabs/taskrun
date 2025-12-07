@@ -9,6 +9,8 @@ use tokio::sync::{mpsc, RwLock};
 use taskrun_core::{Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
+use crate::crypto::{BootstrapToken, CertificateAuthority};
+
 /// Represents a connected worker's state.
 #[allow(dead_code)]
 pub struct ConnectedWorker {
@@ -38,6 +40,12 @@ pub struct AppState {
 
     /// Tasks indexed by TaskId.
     pub tasks: RwLock<HashMap<TaskId, Task>>,
+
+    /// Bootstrap tokens indexed by token hash.
+    pub bootstrap_tokens: RwLock<HashMap<String, BootstrapToken>>,
+
+    /// Certificate authority for signing worker CSRs.
+    pub ca: Option<CertificateAuthority>,
 }
 
 impl AppState {
@@ -46,6 +54,18 @@ impl AppState {
         Arc::new(Self {
             workers: RwLock::new(HashMap::new()),
             tasks: RwLock::new(HashMap::new()),
+            bootstrap_tokens: RwLock::new(HashMap::new()),
+            ca: None,
+        })
+    }
+
+    /// Create a new AppState with a Certificate Authority.
+    pub fn with_ca(ca: CertificateAuthority) -> Arc<Self> {
+        Arc::new(Self {
+            workers: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::new()),
+            bootstrap_tokens: RwLock::new(HashMap::new()),
+            ca: Some(ca),
         })
     }
 
@@ -67,6 +87,8 @@ impl Default for AppState {
         Self {
             workers: RwLock::new(HashMap::new()),
             tasks: RwLock::new(HashMap::new()),
+            bootstrap_tokens: RwLock::new(HashMap::new()),
+            ca: None,
         }
     }
 }

@@ -27,12 +27,18 @@ if [[ -f "ca.crt" && -f "server.crt" ]]; then
 fi
 
 echo -e "${GREEN}Generating CA key and certificate...${NC}"
-openssl ecparam -genkey -name prime256v1 -out ca.key 2>/dev/null
+# Generate EC key and convert to PKCS#8 format (required by rcgen)
+openssl ecparam -genkey -name prime256v1 -out ca.key.ec 2>/dev/null
+openssl pkcs8 -topk8 -nocrypt -in ca.key.ec -out ca.key
+rm ca.key.ec
 openssl req -new -x509 -days 365 -key ca.key -out ca.crt \
     -subj "/CN=TaskRun Dev CA" 2>/dev/null
 
 echo -e "${GREEN}Generating server key and certificate...${NC}"
-openssl ecparam -genkey -name prime256v1 -out server.key 2>/dev/null
+# Generate EC key and convert to PKCS#8 format
+openssl ecparam -genkey -name prime256v1 -out server.key.ec 2>/dev/null
+openssl pkcs8 -topk8 -nocrypt -in server.key.ec -out server.key
+rm server.key.ec
 openssl req -new -key server.key -out server.csr \
     -subj "/CN=localhost" 2>/dev/null
 
