@@ -98,6 +98,97 @@ pub struct OutputResponse {
     pub output: Option<String>,
 }
 
+// ============================================================================
+// SSE Streaming Types (OpenAI-compatible)
+// ============================================================================
+
+/// SSE event: response.created
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResponseCreatedEvent {
+    pub id: String,
+    pub object: String,
+    pub model: String,
+    pub created_at: i64,
+}
+
+/// SSE event: response.output_text.delta
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OutputTextDeltaEvent {
+    pub response_id: String,
+    pub output_index: u32,
+    pub delta: DeltaContent,
+}
+
+/// Delta content in streaming events.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeltaContent {
+    pub content_type: String,
+    pub text: String,
+}
+
+/// SSE event: response.completed
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResponseCompletedEvent {
+    pub id: String,
+    pub status: String,
+}
+
+/// SSE event: response.failed
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResponseFailedEvent {
+    pub id: String,
+    pub status: String,
+    pub error: Option<ResponseError>,
+}
+
+/// Error details in failed response.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResponseError {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub code: Option<String>,
+}
+
+/// Parsed SSE event from the stream.
+#[derive(Debug, Clone)]
+pub enum SseEvent {
+    Created(ResponseCreatedEvent),
+    Delta(OutputTextDeltaEvent),
+    Completed(ResponseCompletedEvent),
+    Failed(ResponseFailedEvent),
+    Unknown(String, String), // (event_type, data)
+}
+
+impl SseEvent {
+    /// Parse an SSE event from event type and JSON data.
+    pub fn parse(event_type: &str, data: &str) -> Option<Self> {
+        match event_type {
+            "response.created" => {
+                serde_json::from_str::<ResponseCreatedEvent>(data)
+                    .ok()
+                    .map(SseEvent::Created)
+            }
+            "response.output_text.delta" => {
+                serde_json::from_str::<OutputTextDeltaEvent>(data)
+                    .ok()
+                    .map(SseEvent::Delta)
+            }
+            "response.completed" => {
+                serde_json::from_str::<ResponseCompletedEvent>(data)
+                    .ok()
+                    .map(SseEvent::Completed)
+            }
+            "response.failed" => {
+                serde_json::from_str::<ResponseFailedEvent>(data)
+                    .ok()
+                    .map(SseEvent::Failed)
+            }
+            _ => Some(SseEvent::Unknown(event_type.to_string(), data.to_string())),
+        }
+    }
+}
+
 /// Parsed metrics from Prometheus format.
 #[derive(Debug, Clone, Default)]
 pub struct Metrics {

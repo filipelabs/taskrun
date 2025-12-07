@@ -3,7 +3,7 @@
 use leptos::*;
 use leptos_router::*;
 
-use crate::components::{Metrics, Sidebar, Tasks, Workers};
+use crate::components::{Metrics, Playground, Sidebar, Tasks, Workers};
 
 /// Main application component.
 #[component]
@@ -17,6 +17,7 @@ pub fn App() -> impl IntoView {
                         <Route path="/" view=Workers />
                         <Route path="/workers" view=Workers />
                         <Route path="/tasks" view=Tasks />
+                        <Route path="/playground" view=Playground />
                         <Route path="/metrics" view=Metrics />
                     </Routes>
                 </main>

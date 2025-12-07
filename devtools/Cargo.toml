@@ -17,6 +17,22 @@ serde_json = "1.0"
 serde-wasm-bindgen = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["console", "MouseEvent"] }
+web-sys = { version = "0.3", features = [
+    "console",
+    "MouseEvent",
+    "EventSource",
+    "EventSourceInit",
+    "MessageEvent",
+    "ErrorEvent",
+    "Window",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+] }
+js-sys = "0.3"
 console_error_panic_hook = "0.1"
 chrono = { version = "0.4", features = ["wasmbind"] }

@@ -18,6 +18,7 @@ pub fn Sidebar() -> impl IntoView {
             <nav class="flex-1 p-4 space-y-2">
                 <NavLink href="/workers" label="Workers" icon="W" />
                 <NavLink href="/tasks" label="Tasks" icon="T" />
+                <NavLink href="/playground" label="Playground" icon="P" />
                 <NavLink href="/metrics" label="Metrics" icon="M" />
             </nav>
 
