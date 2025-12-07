@@ -278,6 +278,83 @@ cargo run -p taskrun-control-plane
 cargo run -p taskrun-worker
 ```
 
+## Testing End-to-End Execution
+
+### Prerequisites
+
+1. **Claude Code CLI** must be installed and authenticated
+2. **Certificates** must be generated (see `certs/` directory)
+3. **grpcurl** for making gRPC calls (optional, for manual testing)
+
+### Quick Start (Three Terminals)
+
+**Terminal 1 - Control Plane:**
+```bash
+RUST_LOG=info cargo run -p taskrun-control-plane
+```
+
+**Terminal 2 - Worker:**
+```bash
+RUST_LOG=info cargo run -p taskrun-worker
+```
+
+**Terminal 3 - Create Task:**
+```bash
+# Using grpcurl (requires mTLS certs)
+grpcurl -cacert certs/ca.crt -cert certs/worker.crt -key certs/worker.key \
+  -import-path proto -proto taskrun/v1/task_service.proto \
+  -d '{"agent_name":"support_triage","input_json":"{\"ticket_id\":\"TEST-123\",\"subject\":\"Cannot login\"}"}' \
+  '[::1]:50051' taskrun.v1.TaskService/CreateTask
+
+# Check task status
+grpcurl -cacert certs/ca.crt -cert certs/worker.crt -key certs/worker.key \
+  -import-path proto -proto taskrun/v1/task_service.proto \
+  -d '{"task_id":"<TASK_ID_FROM_ABOVE>"}' \
+  '[::1]:50051' taskrun.v1.TaskService/GetTask
+```
+
+### Expected Logs (Success)
+
+```
+# Control Plane
+INFO Creating task task_id=<uuid> agent=support_triage
+INFO Assigning task to worker task_id=<uuid> run_id=<uuid> worker_id=<uuid>
+INFO Run status update status=Running
+INFO Output chunk received content_len=252
+INFO Run status update status=Completed
+INFO Task completed
+
+# Worker
+INFO Received run assignment run_id=<uuid> agent=support_triage
+INFO Starting real execution via Claude Code
+INFO Claude process spawned successfully
+INFO Received message from Claude message_num=1 bytes=3766
+INFO StreamingHandler received message message_type="System"
+INFO Captured session ID session_id=<uuid>
+INFO StreamingHandler received message message_type="Assistant"
+INFO Streaming assistant text chunk text_len=252
+INFO StreamingHandler received message message_type="Result"
+INFO Execution result received is_error=Some(false) duration_ms=Some(4549)
+INFO Claude process exited exit_code=0 success=true
+INFO Real execution completed successfully
+```
+
+### Available Agents
+
+| Agent | Description | Input JSON |
+|-------|-------------|------------|
+| `support_triage` | Classifies support tickets | `{"ticket_id": "...", "subject": "...", "body": "..."}` |
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `CertificateRequired` error | Use mTLS certs with grpcurl: `-cacert`, `-cert`, `-key` flags |
+| Worker not connecting | Ensure control plane is running first |
+| Claude not found | Verify `claude` CLI is in PATH: `which claude` |
+| Unknown message types | Check Claude Code version, may need update |
+| Task stays PENDING | No worker available with requested agent |
+
 ## Code Style
 
 - Use `rustfmt` defaults

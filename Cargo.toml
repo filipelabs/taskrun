@@ -6,6 +6,7 @@ members = [
     "crates/taskrun-control-plane",
     "crates/taskrun-worker",
     "crates/taskrun-cli",
+    "crates/taskrun-claude-sdk",
 ]
 
 [workspace.package]

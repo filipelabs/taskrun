@@ -1,28 +1,40 @@
-//! Agent execution via Claude Code subprocess.
+//! Agent execution via Claude Code SDK.
+//!
+//! This module uses the `taskrun-claude-sdk` crate for structured communication
+//! with Claude Code, providing streaming output and session tracking.
 
-use std::process::Stdio;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
+use serde_json::{json, Value};
+use taskrun_claude_sdk::{
+    ClaudeExecutor, ClaudeMessage, ContentDelta, ContentItem, ControlHandler, PermissionMode,
+    PermissionResult, SdkError, StreamEvent,
+};
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, trace, warn};
 
 /// Errors that can occur during agent execution.
 #[derive(Debug, Error)]
 pub enum ExecutorError {
+    #[allow(dead_code)] // Kept for potential future use
     #[error("Claude CLI not found at '{0}'. Ensure Claude Code is installed.")]
     ClaudeNotFound(String),
 
     #[error("Failed to spawn Claude process: {0}")]
     SpawnError(#[from] std::io::Error),
 
+    #[allow(dead_code)] // Kept for potential future use
     #[error("Claude process exited with error: {0}")]
     ProcessError(String),
 
     #[error("Unknown agent: {0}")]
     UnknownAgent(String),
 
+    #[error("SDK error: {0}")]
+    SdkError(String),
 }
 
 /// Output chunk from Claude Code execution.
@@ -32,7 +44,146 @@ pub struct OutputChunk {
     pub is_final: bool,
 }
 
-/// Executes agents via Claude Code CLI subprocess.
+/// Handler that streams Claude messages as output chunks.
+struct StreamingHandler {
+    output_tx: mpsc::Sender<OutputChunk>,
+    session_id: Arc<Mutex<Option<String>>>,
+}
+
+impl StreamingHandler {
+    fn new(output_tx: mpsc::Sender<OutputChunk>) -> Self {
+        Self {
+            output_tx,
+            session_id: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn session_id(&self) -> Option<String> {
+        self.session_id.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ControlHandler for StreamingHandler {
+    async fn on_can_use_tool(
+        &self,
+        tool_name: String,
+        input: Value,
+    ) -> Result<PermissionResult, SdkError> {
+        info!(tool = %tool_name, "Auto-approving tool use");
+        Ok(PermissionResult::Allow {
+            updated_input: input,
+            updated_permissions: None,
+        })
+    }
+
+    async fn on_hook_callback(
+        &self,
+        callback_id: String,
+        _input: Value,
+        _tool_use_id: Option<String>,
+    ) -> Result<Value, SdkError> {
+        info!(callback = %callback_id, "Auto-approving hook callback");
+        Ok(json!({
+            "hookSpecificOutput": {
+                "permissionDecision": "allow"
+            }
+        }))
+    }
+
+    async fn on_message(&self, message: ClaudeMessage) -> Result<(), SdkError> {
+        // Log message type first
+        let msg_type = match &message {
+            ClaudeMessage::System { .. } => "System",
+            ClaudeMessage::Assistant { .. } => "Assistant",
+            ClaudeMessage::User { .. } => "User",
+            ClaudeMessage::ToolUse { .. } => "ToolUse",
+            ClaudeMessage::ToolResult { .. } => "ToolResult",
+            ClaudeMessage::StreamEvent { .. } => "StreamEvent",
+            ClaudeMessage::Result { .. } => "Result",
+            ClaudeMessage::ControlRequest { .. } => "ControlRequest",
+            ClaudeMessage::Unknown(_) => "Unknown",
+        };
+        info!(message_type = msg_type, "StreamingHandler received message");
+
+        match message {
+            ClaudeMessage::System { session_id, model, .. } => {
+                // Capture session ID for future use
+                info!(session_id = ?session_id, model = ?model, "System message received");
+                if let Some(sid) = session_id {
+                    info!(session_id = %sid, "Captured session ID");
+                    *self.session_id.lock().unwrap() = Some(sid);
+                }
+            }
+            ClaudeMessage::Assistant { message, .. } => {
+                // Extract text content and stream it
+                info!(content_count = message.content.len(), "Assistant message received");
+                for content in message.content {
+                    if let ContentItem::Text { text } = content {
+                        info!(text_len = text.len(), "Streaming assistant text chunk");
+                        let chunk = OutputChunk {
+                            content: text,
+                            is_final: false,
+                        };
+                        if self.output_tx.send(chunk).await.is_err() {
+                            warn!("Failed to send output chunk - receiver dropped");
+                        }
+                    }
+                }
+            }
+            ClaudeMessage::StreamEvent { event, .. } => {
+                // Handle streaming delta events for real-time token output
+                if let StreamEvent::ContentBlockDelta { delta, index } = event {
+                    if let ContentDelta::TextDelta { text } = delta {
+                        info!(text_len = text.len(), block_index = index, "Streaming text delta");
+                        let chunk = OutputChunk {
+                            content: text,
+                            is_final: false,
+                        };
+                        if self.output_tx.send(chunk).await.is_err() {
+                            warn!("Failed to send output chunk - receiver dropped");
+                        }
+                    }
+                }
+            }
+            ClaudeMessage::Result {
+                is_error,
+                duration_ms,
+                ..
+            } => {
+                info!(
+                    is_error = ?is_error,
+                    duration_ms = ?duration_ms,
+                    "Execution result received"
+                );
+            }
+            ClaudeMessage::ToolUse { tool_name, .. } => {
+                info!(tool = %tool_name, "Tool use message");
+            }
+            ClaudeMessage::ToolResult { is_error, .. } => {
+                info!(is_error = ?is_error, "Tool result message");
+            }
+            ClaudeMessage::Unknown(ref value) => {
+                // Log the full unknown message for debugging
+                let full_json = serde_json::to_string(value)
+                    .unwrap_or_else(|_| "failed to serialize".to_string());
+                // Check if this is a control_response (expected)
+                if value.get("type").and_then(|t| t.as_str()) == Some("control_response") {
+                    info!(len = full_json.len(), "Received control_response (expected)");
+                } else {
+                    // Log full message for unexpected types
+                    warn!(full_message = %full_json, "Received unexpected Unknown message type");
+                }
+            }
+            _ => {
+                debug!("Ignoring other message type");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Executes agents via Claude Code SDK.
 #[derive(Clone)]
 pub struct ClaudeCodeExecutor {
     /// Path to the claude CLI binary.
@@ -54,76 +205,32 @@ impl ClaudeCodeExecutor {
         input_json: &str,
         output_tx: mpsc::Sender<OutputChunk>,
     ) -> Result<ExecutionResult, ExecutorError> {
+        info!(
+            agent = %agent_name,
+            claude_path = %self.claude_path,
+            input_len = input_json.len(),
+            "Starting agent execution"
+        );
+
         // Build the prompt based on agent type
         let prompt = self.build_prompt(agent_name, input_json)?;
+        info!(prompt_len = prompt.len(), "Built prompt for agent");
 
-        info!(agent = %agent_name, "Starting Claude Code execution");
+        info!(agent = %agent_name, "Creating Claude Code SDK executor");
         debug!(prompt = %prompt, "Full prompt");
 
-        // Spawn claude subprocess
-        let mut cmd = Command::new(&self.claude_path);
-        cmd.arg("--print") // Non-interactive mode, print to stdout
-            .arg("--output-format")
-            .arg("text") // Plain text output
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Create SDK executor with bypass permissions (auto-approve all)
+        let sdk_executor = ClaudeExecutor::new(&self.claude_path)
+            .with_permission_mode(PermissionMode::BypassPermissions);
 
-        let mut child = cmd.spawn().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ExecutorError::ClaudeNotFound(self.claude_path.clone())
-            } else {
-                ExecutorError::SpawnError(e)
-            }
-        })?;
+        // Create streaming handler
+        let handler = Arc::new(StreamingHandler::new(output_tx.clone()));
 
-        // Write prompt to stdin
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(prompt.as_bytes()).await?;
-            stdin.shutdown().await?;
-        }
-
-        // Stream stdout line by line
-        let stdout = child.stdout.take().expect("stdout should be captured");
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-
-        let mut line_count = 0;
-        while let Ok(Some(line)) = lines.next_line().await {
-            line_count += 1;
-            debug!(line = %line, seq = line_count, "Output line");
-
-            if output_tx
-                .send(OutputChunk {
-                    content: line,
-                    is_final: false,
-                })
-                .await
-                .is_err()
-            {
-                warn!("Output channel closed, stopping execution");
-                break;
-            }
-        }
-
-        // Wait for process to complete
-        let status = child.wait().await?;
-
-        // Capture stderr if process failed
-        if !status.success() {
-            let stderr = child.stderr.take();
-            let error_msg = if let Some(stderr) = stderr {
-                let mut reader = BufReader::new(stderr);
-                let mut error = String::new();
-                let _ = tokio::io::AsyncReadExt::read_to_string(&mut reader, &mut error).await;
-                error
-            } else {
-                format!("Process exited with code: {:?}", status.code())
-            };
-
-            error!(error = %error_msg, "Claude process failed");
-            return Err(ExecutorError::ProcessError(error_msg));
-        }
+        // Execute via SDK
+        let result = sdk_executor
+            .execute(Path::new("."), &prompt, handler.clone())
+            .await
+            .map_err(|e| ExecutorError::SdkError(e.to_string()))?;
 
         // Send final marker
         let _ = output_tx
@@ -133,11 +240,17 @@ impl ClaudeCodeExecutor {
             })
             .await;
 
-        info!(lines = line_count, "Claude Code execution completed");
+        let session_id = handler.session_id();
+        info!(
+            session_id = ?session_id,
+            model = %result.model_used,
+            "Claude Code execution completed"
+        );
 
         Ok(ExecutionResult {
-            model_used: "claude-sonnet-4-20250514".to_string(), // Default model
+            model_used: result.model_used,
             provider: "anthropic".to_string(),
+            session_id,
         })
     }
 
@@ -179,6 +292,9 @@ pub struct ExecutionResult {
     pub model_used: String,
     /// The provider (e.g., "anthropic").
     pub provider: String,
+    /// The session ID for continuation (if available).
+    #[allow(dead_code)] // Exposed for future session continuation support
+    pub session_id: Option<String>,
 }
 
 #[cfg(test)]
