@@ -1,0 +1,31 @@
+[package]
+name = "taskrun-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal UI for TaskRun"
+
+[[bin]]
+name = "taskrun-tui"
+path = "src/main.rs"
+
+[dependencies]
+taskrun-core = { path = "../taskrun-core" }
+taskrun-proto = { path = "../taskrun-proto" }
+taskrun-admin-client = { path = "../taskrun-admin-client" }
+
+# Async
+tokio = { workspace = true }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# CLI
+clap = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Time
+chrono = { workspace = true }

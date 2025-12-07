@@ -38,10 +38,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri -- -D warnings
+        run: cargo clippy --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri --exclude taskrun-tui -- -D warnings
 
       - name: Build
-        run: cargo build --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri
+        run: cargo build --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri --exclude taskrun-tui
 
       - name: Run tests
-        run: cargo test --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri
+        run: cargo test --workspace --exclude taskrun-devtools --exclude taskrun-devtools-tauri --exclude taskrun-tui
