@@ -4,23 +4,30 @@
 //! familiar OpenAI SDKs while TaskRun orchestrates agents on workers.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse,
+    },
     Json,
 };
+use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::broadcast;
 use tracing::{info, warn};
 
-use taskrun_core::{Task, TaskStatus};
+use taskrun_core::{RunStatus, Task, TaskStatus};
 
 use crate::scheduler::Scheduler;
-use crate::state::AppState;
+use crate::state::{AppState, StreamEvent};
 
 // ============================================================================
 // Request Types
@@ -153,6 +160,54 @@ pub struct ErrorResponse {
 }
 
 // ============================================================================
+// SSE Event Types
+// ============================================================================
+
+/// Type alias for boxed SSE stream.
+type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
+
+/// SSE event: response.created
+#[derive(Debug, Serialize)]
+struct ResponseCreatedEvent {
+    id: String,
+    object: &'static str,
+    model: String,
+    created_at: i64,
+}
+
+/// SSE event: response.output_text.delta
+#[derive(Debug, Serialize)]
+struct OutputTextDeltaEvent {
+    response_id: String,
+    output_index: u32,
+    delta: DeltaContent,
+}
+
+/// Delta content for streaming.
+#[derive(Debug, Serialize)]
+struct DeltaContent {
+    content_type: String,
+    text: String,
+}
+
+/// SSE event: response.completed
+#[derive(Debug, Serialize)]
+struct ResponseCompletedEvent {
+    id: String,
+    status: String,
+    output: Vec<OutputItem>,
+    usage: Option<Usage>,
+}
+
+/// SSE event: response.failed
+#[derive(Debug, Serialize)]
+struct ResponseFailedEvent {
+    id: String,
+    status: String,
+    error: ErrorObject,
+}
+
+// ============================================================================
 // Handler
 // ============================================================================
 
@@ -167,21 +222,223 @@ pub async fn create_response(
         "Received OpenAI-compatible request"
     );
 
-    // TODO: Implement streaming (Phase 3)
     if req.stream {
-        return (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(ErrorResponse {
-                error: ErrorObject {
-                    message: "Streaming is not yet implemented".to_string(),
-                    error_type: "invalid_request_error".to_string(),
-                    code: "streaming_not_supported".to_string(),
-                },
-            }),
-        )
-            .into_response();
+        create_streaming_response(state, req).await.into_response()
+    } else {
+        create_non_streaming_response(state, req).await.into_response()
     }
+}
 
+/// Create a streaming SSE response.
+async fn create_streaming_response(
+    state: Arc<AppState>,
+    req: CreateResponseRequest,
+) -> Sse<SseEventStream> {
+    // Map model to agent_name
+    let agent_name = resolve_agent_name(&req.model);
+    let input_json = build_input_json(&req);
+
+    // Create task
+    let mut task = Task::new(&agent_name, &input_json, "http-api");
+    for (k, v) in &req.metadata {
+        task.labels.insert(k.clone(), v.clone());
+    }
+    task.labels.insert("source".to_string(), "openai_api".to_string());
+    task.labels.insert("streaming".to_string(), "true".to_string());
+
+    let task_id = task.id.clone();
+    let created_at = task.created_at.timestamp();
+
+    info!(
+        task_id = %task_id,
+        agent = %agent_name,
+        "Creating streaming task from OpenAI request"
+    );
+
+    // Store task
+    state.tasks.write().await.insert(task_id.clone(), task);
+
+    // Schedule task
+    let scheduler = Scheduler::new(state.clone());
+    let run_id = match scheduler.assign_task(&task_id).await {
+        Ok(run_id) => {
+            info!(task_id = %task_id, run_id = %run_id, "Task assigned to worker (streaming)");
+            run_id
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to assign task");
+            // Return error as SSE stream with single error event
+            let error_stream: SseEventStream = Box::pin(stream::once(async move {
+                let event = ResponseFailedEvent {
+                    id: format!("resp_{}", task_id.as_str()),
+                    status: "failed".to_string(),
+                    error: ErrorObject {
+                        message: format!("Failed to schedule task: {}", e),
+                        error_type: "scheduling_error".to_string(),
+                        code: "no_worker_available".to_string(),
+                    },
+                };
+                Ok::<_, Infallible>(
+                    Event::default()
+                        .event("response.failed")
+                        .json_data(event)
+                        .unwrap(),
+                )
+            }));
+            return Sse::new(error_stream).keep_alive(KeepAlive::default());
+        }
+    };
+
+    let response_id = format!("resp_{}", run_id.as_str());
+
+    // Subscribe to stream channel BEFORE any events might be published
+    let sender = state.get_or_create_stream_channel(&run_id).await;
+    let receiver = sender.subscribe();
+
+    // Create the SSE stream
+    let sse_stream: SseEventStream = Box::pin(create_sse_stream(
+        receiver,
+        response_id,
+        req.model.clone(),
+        created_at,
+    ));
+
+    Sse::new(sse_stream).keep_alive(KeepAlive::default())
+}
+
+/// Create the SSE stream from broadcast receiver.
+fn create_sse_stream(
+    receiver: broadcast::Receiver<StreamEvent>,
+    response_id: String,
+    model: String,
+    created_at: i64,
+) -> impl Stream<Item = Result<Event, Infallible>> + Send {
+    // First, emit the response.created event
+    let created_event = ResponseCreatedEvent {
+        id: response_id.clone(),
+        object: "response",
+        model: model.clone(),
+        created_at,
+    };
+
+    let initial = stream::once(async move {
+        Ok::<_, Infallible>(
+            Event::default()
+                .event("response.created")
+                .json_data(created_event)
+                .unwrap(),
+        )
+    });
+
+    // State for unfold: (receiver, response_id, terminated)
+    let state = (receiver, response_id, false);
+
+    // Use unfold to properly manage async state with termination
+    let event_stream = stream::unfold(state, |(mut receiver, response_id, terminated)| async move {
+        if terminated {
+            return None;
+        }
+
+        // Use the receiver directly instead of BroadcastStream
+        match receiver.recv().await {
+            Ok(event) => {
+                let is_terminal = matches!(
+                    &event,
+                    StreamEvent::StatusUpdate { status, .. }
+                        if status.is_terminal()
+                );
+                let sse_event = stream_event_to_sse(event, &response_id);
+                Some((sse_event, (receiver, response_id, is_terminal)))
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                warn!(skipped = n, "Broadcast stream lagged, skipping events");
+                // Continue receiving after lag
+                Some((
+                    Ok(Event::default().comment(format!("skipped {} events", n))),
+                    (receiver, response_id, false),
+                ))
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                // Channel closed, stream ends
+                None
+            }
+        }
+    });
+
+    // Chain initial event with the broadcast stream
+    initial.chain(event_stream)
+}
+
+/// Convert a StreamEvent to an SSE Event.
+fn stream_event_to_sse(event: StreamEvent, response_id: &str) -> Result<Event, Infallible> {
+    match event {
+        StreamEvent::OutputChunk {
+            seq: _,
+            content,
+            is_final: _,
+            timestamp_ms: _,
+        } => {
+            let delta_event = OutputTextDeltaEvent {
+                response_id: response_id.to_string(),
+                output_index: 0,
+                delta: DeltaContent {
+                    content_type: "text/plain".to_string(),
+                    text: content,
+                },
+            };
+            Ok(Event::default()
+                .event("response.output_text.delta")
+                .json_data(delta_event)
+                .unwrap())
+        }
+        StreamEvent::StatusUpdate {
+            status,
+            error_message,
+            timestamp_ms: _,
+        } => {
+            if status == RunStatus::Completed {
+                let completed_event = ResponseCompletedEvent {
+                    id: response_id.to_string(),
+                    status: "completed".to_string(),
+                    output: vec![], // Output already streamed via deltas
+                    usage: None,    // TODO: Track token usage
+                };
+                Ok(Event::default()
+                    .event("response.completed")
+                    .json_data(completed_event)
+                    .unwrap())
+            } else if status == RunStatus::Failed || status == RunStatus::Cancelled {
+                let status_str = if status == RunStatus::Failed {
+                    "failed"
+                } else {
+                    "cancelled"
+                };
+                let failed_event = ResponseFailedEvent {
+                    id: response_id.to_string(),
+                    status: status_str.to_string(),
+                    error: ErrorObject {
+                        message: error_message.unwrap_or_else(|| "Unknown error".to_string()),
+                        error_type: "agent_error".to_string(),
+                        code: "execution_failed".to_string(),
+                    },
+                };
+                Ok(Event::default()
+                    .event("response.failed")
+                    .json_data(failed_event)
+                    .unwrap())
+            } else {
+                // Running or other status - emit as comment (no-op for client)
+                Ok(Event::default().comment(format!("status: {:?}", status)))
+            }
+        }
+    }
+}
+
+/// Create a non-streaming response (original implementation).
+async fn create_non_streaming_response(
+    state: Arc<AppState>,
+    req: CreateResponseRequest,
+) -> impl IntoResponse {
     // Map model to agent_name (direct mapping for MVP)
     let agent_name = resolve_agent_name(&req.model);
 

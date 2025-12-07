@@ -4,12 +4,41 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
-use taskrun_core::{RunEvent, RunId, Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{RunEvent, RunId, RunStatus, Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
 use crate::crypto::{BootstrapToken, CertificateAuthority};
+
+// ============================================================================
+// Streaming Types
+// ============================================================================
+
+/// Events sent through the streaming channel for SSE subscribers.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// Output chunk from worker.
+    OutputChunk {
+        seq: u64,
+        content: String,
+        is_final: bool,
+        timestamp_ms: i64,
+    },
+    /// Status update (run started, completed, failed, cancelled).
+    StatusUpdate {
+        status: RunStatus,
+        error_message: Option<String>,
+        timestamp_ms: i64,
+    },
+}
+
+/// Type alias for broadcast sender of stream events.
+pub type StreamSender = broadcast::Sender<StreamEvent>;
+
+// ============================================================================
+// Connected Worker
+// ============================================================================
 
 /// Represents a connected worker's state.
 #[allow(dead_code)]
@@ -47,6 +76,10 @@ pub struct AppState {
     /// Run output indexed by RunId (accumulated content from output chunks).
     pub outputs: RwLock<HashMap<RunId, String>>,
 
+    /// Broadcast channels for streaming run output, indexed by RunId.
+    /// Created when a streaming client subscribes.
+    pub stream_channels: RwLock<HashMap<RunId, StreamSender>>,
+
     /// Bootstrap tokens indexed by token hash.
     pub bootstrap_tokens: RwLock<HashMap<String, BootstrapToken>>,
 
@@ -62,6 +95,7 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
         })
@@ -74,6 +108,7 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: Some(ca),
         })
@@ -150,6 +185,39 @@ impl AppState {
         }
         None
     }
+
+    // ========================================================================
+    // Streaming Methods
+    // ========================================================================
+
+    /// Get or create a stream channel for a run.
+    /// Returns the sender so callers can subscribe via `sender.subscribe()`.
+    pub async fn get_or_create_stream_channel(&self, run_id: &RunId) -> StreamSender {
+        let mut channels = self.stream_channels.write().await;
+        channels
+            .entry(run_id.clone())
+            .or_insert_with(|| {
+                // Capacity of 64 events should handle bursts
+                let (tx, _) = broadcast::channel(64);
+                tx
+            })
+            .clone()
+    }
+
+    /// Publish an event to a run's stream channel if it exists.
+    pub async fn publish_stream_event(&self, run_id: &RunId, event: StreamEvent) {
+        let channels = self.stream_channels.read().await;
+        if let Some(tx) = channels.get(run_id) {
+            // Ignore send errors (no subscribers = ok to drop)
+            let _ = tx.send(event);
+        }
+    }
+
+    /// Remove a stream channel (cleanup after run completes).
+    pub async fn remove_stream_channel(&self, run_id: &RunId) {
+        let mut channels = self.stream_channels.write().await;
+        channels.remove(run_id);
+    }
 }
 
 impl Default for AppState {
@@ -159,6 +227,7 @@ impl Default for AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
         }

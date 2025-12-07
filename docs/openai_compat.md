@@ -130,20 +130,36 @@ Output content blocks include `content_type` for future multimodal support:
 | `output_json` | `application/json` | Structured JSON (future) |
 | `output_audio` | `audio/ogg` | Audio output (future) |
 
-#### Response (Streaming - Planned)
+#### Response (Streaming)
 
-When `stream: true`, response is Server-Sent Events:
+When `stream: true`, the response is Server-Sent Events (SSE):
 
 ```
 event: response.created
-data: {"id":"resp_abc123","model":"general","created_at":1741476542}
+data: {"id":"resp_abc123","object":"response","model":"general","created_at":1741476542}
 
 event: response.output_text.delta
-data: {"response_id":"resp_abc123","output_index":0,"delta":{"text":"4"}}
+data: {"response_id":"resp_abc123","output_index":0,"delta":{"content_type":"text/plain","text":"The answer is "}}
+
+event: response.output_text.delta
+data: {"response_id":"resp_abc123","output_index":0,"delta":{"content_type":"text/plain","text":"4"}}
 
 event: response.completed
-data: {"id":"resp_abc123","status":"completed","output":[...],"usage":{...}}
+data: {"id":"resp_abc123","status":"completed","output":[],"usage":null}
 ```
+
+**Events:**
+| Event | Description |
+|-------|-------------|
+| `response.created` | Emitted immediately when the response starts |
+| `response.output_text.delta` | Emitted for each output chunk from the agent |
+| `response.completed` | Emitted when execution completes successfully |
+| `response.failed` | Emitted when execution fails or is cancelled |
+
+**Notes:**
+- The stream terminates after `response.completed` or `response.failed`
+- Output is streamed via delta events; the final `output` array in `response.completed` is empty
+- Keep-alive comments are sent periodically to maintain the connection
 
 ## Error Responses
 
@@ -199,13 +215,23 @@ No additional configuration required. The endpoint uses existing:
 
 ## Usage Examples
 
-### curl
+### curl (non-streaming)
 
 ```bash
 curl -X POST http://[::1]:50052/v1/responses \
   -H "Content-Type: application/json" \
   -d '{"model":"general","input":"What is 2+2?"}'
 ```
+
+### curl (streaming)
+
+```bash
+curl -N -X POST http://[::1]:50052/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"general","input":"What is 2+2?","stream":true}'
+```
+
+The `-N` flag disables buffering for real-time SSE output.
 
 ### Python (OpenAI SDK style)
 
@@ -224,16 +250,14 @@ print(response.json()["output"][0]["content"][0]["text"])
 
 ## Limitations (Current)
 
-- **No streaming**: `stream: true` returns 501 Not Implemented
 - **No authentication**: Bearer token auth not yet implemented
 - **No rate limiting**: No request throttling
 - **No token counting**: `usage` field not populated
-- **5-minute timeout**: Fixed execution timeout
+- **5-minute timeout**: Fixed execution timeout for non-streaming requests
 
 ## Future Enhancements
 
 1. **Bearer Token Authentication**: `Authorization: Bearer <api_key>`
-2. **SSE Streaming**: Real-time token streaming
-3. **Token Usage Tracking**: Populate `usage` field
-4. **Rate Limiting**: Per-tenant request limits
-5. **Structured Input**: Full message array support
+2. **Token Usage Tracking**: Populate `usage` field
+3. **Rate Limiting**: Per-tenant request limits
+4. **Structured Input**: Full message array support

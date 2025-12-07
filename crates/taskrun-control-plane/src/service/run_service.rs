@@ -2,6 +2,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
@@ -18,7 +19,7 @@ use taskrun_proto::pb::{
 use taskrun_proto::{RunService, RunServiceServer};
 
 use crate::service::mtls::validate_worker_id_format;
-use crate::state::{AppState, ConnectedWorker};
+use crate::state::{AppState, ConnectedWorker, StreamEvent};
 
 /// RunService implementation.
 pub struct RunServiceImpl {
@@ -255,8 +256,17 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                     _ => {}
                 }
 
+                // Capture for stream event before releasing locks
+                let error_msg = if !update.error_message.is_empty() {
+                    Some(update.error_message.clone())
+                } else {
+                    None
+                };
+                let timestamp = update.timestamp_ms;
+                let is_terminal = run_status.is_terminal();
+
                 // Decrement worker's active_runs if terminal
-                if run_status.is_terminal() {
+                if is_terminal {
                     drop(tasks); // Release lock before acquiring workers lock
                     let mut workers = state.workers.write().await;
                     if let Some(worker) = workers.get_mut(&worker_id) {
@@ -264,6 +274,31 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                             worker.active_runs -= 1;
                         }
                     }
+                    drop(workers);
+                } else {
+                    drop(tasks);
+                }
+
+                // Publish stream event for SSE subscribers
+                state
+                    .publish_stream_event(
+                        &run_id,
+                        StreamEvent::StatusUpdate {
+                            status: run_status,
+                            error_message: error_msg,
+                            timestamp_ms: timestamp,
+                        },
+                    )
+                    .await;
+
+                // Schedule cleanup for terminal status
+                if is_terminal {
+                    let state_clone = state.clone();
+                    let run_id_clone = run_id.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        state_clone.remove_stream_channel(&run_id_clone).await;
+                    });
                 }
 
                 return;
@@ -307,6 +342,19 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
     if !chunk.content.is_empty() {
         state.append_output(&run_id, &chunk.content).await;
     }
+
+    // Publish to stream channel for SSE subscribers
+    state
+        .publish_stream_event(
+            &run_id,
+            StreamEvent::OutputChunk {
+                seq: chunk.seq,
+                content: chunk.content,
+                is_final: chunk.is_final,
+                timestamp_ms: chunk.timestamp_ms,
+            },
+        )
+        .await;
 }
 
 async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
