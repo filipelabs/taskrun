@@ -9,11 +9,11 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
-use taskrun_core::{RunId, RunStatus, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunOutputChunk, RunServerMessage, RunStatusUpdate, WorkerHeartbeat,
-    WorkerHello,
+    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage,
+    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
@@ -82,6 +82,9 @@ impl RunService for RunServiceImpl {
                                 }
                                 ClientPayload::OutputChunk(chunk) => {
                                     handle_output_chunk(&state_clone, chunk).await;
+                                }
+                                ClientPayload::Event(event) => {
+                                    handle_event(&state_clone, event).await;
                                 }
                             }
                         }
@@ -300,8 +303,46 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
         );
     }
 
-    // For now, just log the chunk. In a real implementation, we would:
-    // - Store output chunks for later retrieval
-    // - Stream to connected clients watching the task
-    // - Aggregate for final output
+    // Store output content (append to existing output for this run)
+    if !chunk.content.is_empty() {
+        state.append_output(&run_id, &chunk.content).await;
+    }
+}
+
+async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
+    // Convert proto event type to domain event type
+    let event_type = match taskrun_proto::pb::RunEventType::try_from(proto_event.event_type) {
+        Ok(taskrun_proto::pb::RunEventType::ExecutionStarted) => RunEventType::ExecutionStarted,
+        Ok(taskrun_proto::pb::RunEventType::SessionInitialized) => RunEventType::SessionInitialized,
+        Ok(taskrun_proto::pb::RunEventType::ToolRequested) => RunEventType::ToolRequested,
+        Ok(taskrun_proto::pb::RunEventType::ToolCompleted) => RunEventType::ToolCompleted,
+        Ok(taskrun_proto::pb::RunEventType::OutputGenerated) => RunEventType::OutputGenerated,
+        Ok(taskrun_proto::pb::RunEventType::ExecutionCompleted) => RunEventType::ExecutionCompleted,
+        Ok(taskrun_proto::pb::RunEventType::ExecutionFailed) => RunEventType::ExecutionFailed,
+        _ => {
+            warn!(event_id = %proto_event.id, "Unknown event type");
+            return;
+        }
+    };
+
+    // Convert to domain event
+    let event = RunEvent {
+        id: proto_event.id.clone().into(),
+        run_id: RunId::new(&proto_event.run_id),
+        task_id: TaskId::new(&proto_event.task_id),
+        event_type,
+        timestamp_ms: proto_event.timestamp_ms,
+        metadata: proto_event.metadata.clone(),
+    };
+
+    info!(
+        event_id = %proto_event.id,
+        run_id = %proto_event.run_id,
+        task_id = %proto_event.task_id,
+        event_type = ?event_type,
+        "Run event received"
+    );
+
+    // Store the event
+    state.store_event(event).await;
 }

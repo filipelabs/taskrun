@@ -96,6 +96,50 @@ impl From<&str> for RunId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkerId(String);
 
+/// Unique identifier for a RunEvent.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EventId(String);
+
+impl EventId {
+    /// Create a new EventId from a string.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Generate a new random EventId.
+    pub fn generate() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+
+    /// Get the inner string reference.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the inner string.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Display for EventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<String> for EventId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for EventId {
+    fn from(s: &str) -> Self {
+        Self(s.to_owned())
+    }
+}
+
 impl WorkerId {
     /// Create a new WorkerId from a string.
     pub fn new(id: impl Into<String>) -> Self {

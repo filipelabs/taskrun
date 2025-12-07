@@ -30,6 +30,7 @@ message RunClientMessage {
     WorkerHeartbeat heartbeat = 2;
     RunStatusUpdate status_update = 3;
     RunOutputChunk output_chunk = 4;
+    RunEvent event = 5;
   }
 }
 

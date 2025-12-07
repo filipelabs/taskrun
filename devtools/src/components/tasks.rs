@@ -7,6 +7,8 @@ use leptos::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+use crate::api::{fetch_task_events, fetch_task_output, EventResponse};
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -86,9 +88,9 @@ pub fn Tasks() -> impl IntoView {
     let (loading, set_loading) = create_signal(false);
     let (connected, set_connected) = create_signal(false);
     let (error, set_error) = create_signal::<Option<String>>(None);
-    let (agent_name, set_agent_name) = create_signal(String::from("support_triage"));
-    let (input_json, set_input_json) = create_signal(String::from(
-        r#"{"ticket_id": "TEST-1", "subject": "Test ticket", "body": "This is a test."}"#,
+    let (agent_name, _set_agent_name) = create_signal(String::from("general"));
+    let (task_prompt, set_task_prompt) = create_signal(String::from(
+        "What is 2 + 2? Answer briefly.",
     ));
 
     // Connect to gRPC on mount
@@ -140,11 +142,13 @@ pub fn Tasks() -> impl IntoView {
     // Create task handler
     let create_task = move |_| {
         let agent = agent_name.get();
-        let input = input_json.get();
+        let task = task_prompt.get();
+        // Wrap the task in JSON format for the general agent
+        let input_json = serde_json::json!({"task": task}).to_string();
 
         spawn_local(async move {
             set_loading.set(true);
-            match call_create_task(&agent, &input).await {
+            match call_create_task(&agent, &input_json).await {
                 Ok(_task) => {
                     set_error.set(None);
                     // Refresh task list
@@ -196,24 +200,14 @@ pub fn Tasks() -> impl IntoView {
                 <h2 class="text-lg font-semibold mb-4">"Create Task"</h2>
 
                 <div class="space-y-4">
-                    // Agent name
+                    // Task prompt
                     <div>
-                        <label class="block text-sm text-gray-400 mb-1">"Agent Name"</label>
-                        <input
-                            type="text"
-                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-                            prop:value=move || agent_name.get()
-                            on:input=move |ev| set_agent_name.set(event_target_value(&ev))
-                        />
-                    </div>
-
-                    // Input JSON
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">"Input JSON"</label>
+                        <label class="block text-sm text-gray-400 mb-1">"Task"</label>
                         <textarea
-                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm h-32 focus:outline-none focus:border-blue-500"
-                            prop:value=move || input_json.get()
-                            on:input=move |ev| set_input_json.set(event_target_value(&ev))
+                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white text-sm h-24 focus:outline-none focus:border-blue-500"
+                            placeholder="Describe what you want Claude to do..."
+                            prop:value=move || task_prompt.get()
+                            on:input=move |ev| set_task_prompt.set(event_target_value(&ev))
                         />
                     </div>
 
@@ -223,7 +217,7 @@ pub fn Tasks() -> impl IntoView {
                         on:click=create_task
                         disabled=move || !connected.get() || loading.get()
                     >
-                        "Create Task"
+                        "Run Task"
                     </button>
                 </div>
             </div>
@@ -257,9 +251,14 @@ pub fn Tasks() -> impl IntoView {
     }
 }
 
-/// Card displaying a single task.
+/// Card displaying a single task with expandable event timeline.
 #[component]
 fn TaskCard(task: TaskResponse) -> impl IntoView {
+    let (expanded, set_expanded) = create_signal(false);
+    let (events, set_events) = create_signal(Vec::<EventResponse>::new());
+    let (output, set_output) = create_signal::<Option<String>>(None);
+    let (loading_events, set_loading_events) = create_signal(false);
+
     let status_color = match task.status.as_str() {
         "PENDING" => "bg-gray-500",
         "RUNNING" => "bg-blue-500",
@@ -269,46 +268,184 @@ fn TaskCard(task: TaskResponse) -> impl IntoView {
         _ => "bg-gray-500",
     };
 
-    let task_id = task.id.clone();
-    let on_cancel = move |_| {
-        let id = task_id.clone();
+    let task_id_for_cancel = task.id.clone();
+    let on_cancel = move |ev: web_sys::MouseEvent| {
+        ev.stop_propagation(); // Prevent card expansion
+        let id = task_id_for_cancel.clone();
         spawn_local(async move {
             let _ = call_cancel_task(&id).await;
         });
     };
 
+    let task_id_for_expand = task.id.clone();
+    let task_id_for_output = task.id.clone();
+    let on_toggle = move |_| {
+        let new_expanded = !expanded.get();
+        set_expanded.set(new_expanded);
+
+        // Fetch events and output when expanding (if not already loaded)
+        if new_expanded && events.get().is_empty() {
+            let id = task_id_for_expand.clone();
+            let id_for_output = task_id_for_output.clone();
+            spawn_local(async move {
+                set_loading_events.set(true);
+                // Fetch events
+                if let Ok(evt_list) = fetch_task_events(&id).await {
+                    set_events.set(evt_list);
+                }
+                // Fetch output
+                if let Ok(out_resp) = fetch_task_output(&id_for_output).await {
+                    set_output.set(out_resp.output);
+                }
+                set_loading_events.set(false);
+            });
+        }
+    };
+
+    let can_cancel = task.status == "PENDING" || task.status == "RUNNING";
+    let task_id_display = task.id.clone();
+    let agent_name = task.agent_name.clone();
+    let created_at = task.created_at.clone();
+    let input_json = task.input_json.clone();
+
     view! {
-        <div class="bg-gray-700/50 rounded-lg p-4">
-            <div class="flex justify-between items-start">
-                <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                        <span class=format!("px-2 py-0.5 rounded text-xs font-medium {}", status_color)>
-                            {&task.status}
-                        </span>
-                        <span class="font-semibold">{&task.agent_name}</span>
+        <div class="bg-gray-700/50 rounded-lg overflow-hidden">
+            // Clickable header
+            <div
+                class="p-4 cursor-pointer hover:bg-gray-700/70 transition-colors"
+                on:click=on_toggle
+            >
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            // Expand indicator
+                            <span class="text-gray-400 text-xs">
+                                {move || if expanded.get() { "▼" } else { "▶" }}
+                            </span>
+                            <span class=format!("px-2 py-0.5 rounded text-xs font-medium {}", status_color)>
+                                {&task.status}
+                            </span>
+                            <span class="font-semibold">{agent_name.clone()}</span>
+                        </div>
+                        <div class="mt-1 font-mono text-xs text-gray-400 truncate ml-5">
+                            {task_id_display.clone()}
+                        </div>
+                        <div class="mt-2 text-sm text-gray-400 ml-5">
+                            "Created: " {created_at.clone()}
+                        </div>
                     </div>
-                    <div class="mt-1 font-mono text-xs text-gray-400 truncate">
-                        {&task.id}
-                    </div>
-                    <div class="mt-2 text-sm text-gray-400">
-                        "Created: " {&task.created_at}
-                    </div>
+
+                    // Cancel button (only for pending/running tasks)
+                    {can_cancel.then(|| view! {
+                        <button
+                            class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
+                            on:click=on_cancel
+                        >
+                            "Cancel"
+                        </button>
+                    })}
                 </div>
 
-                // Cancel button (only for pending/running tasks)
-                {(task.status == "PENDING" || task.status == "RUNNING").then(|| view! {
-                    <button
-                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
-                        on:click=on_cancel
-                    >
-                        "Cancel"
-                    </button>
-                })}
+                // Input JSON preview (always visible)
+                <div class="mt-3 ml-5 p-2 bg-gray-900/50 rounded text-xs font-mono text-gray-400 overflow-x-auto">
+                    {input_json.clone()}
+                </div>
             </div>
 
-            // Input JSON preview
-            <div class="mt-3 p-2 bg-gray-900/50 rounded text-xs font-mono text-gray-400 overflow-x-auto">
-                {&task.input_json}
+            // Expandable event timeline section
+            {move || expanded.get().then(|| view! {
+                <div class="border-t border-gray-600 p-4 bg-gray-800/50">
+                    <h4 class="text-sm font-semibold text-gray-300 mb-3">"Execution Timeline"</h4>
+
+                    {move || {
+                        if loading_events.get() {
+                            view! {
+                                <div class="text-sm text-gray-400">"Loading..."</div>
+                            }.into_view()
+                        } else {
+                            let event_list = events.get();
+                            if event_list.is_empty() {
+                                view! {
+                                    <div class="text-sm text-gray-500">"No events recorded"</div>
+                                }.into_view()
+                            } else {
+                                view! {
+                                    <div class="space-y-2">
+                                        <For
+                                            each=move || events.get()
+                                            key=|e| e.id.clone()
+                                            children=move |event| view! { <EventRow event=event /> }
+                                        />
+                                    </div>
+                                }.into_view()
+                            }
+                        }
+                    }}
+
+                    // Output section
+                    {move || output.get().map(|out| view! {
+                        <div class="mt-6 pt-4 border-t border-gray-600">
+                            <h4 class="text-sm font-semibold text-gray-300 mb-3">"Output"</h4>
+                            <div class="p-3 bg-gray-900 rounded text-sm font-mono text-gray-200 whitespace-pre-wrap overflow-x-auto max-h-96 overflow-y-auto">
+                                {out}
+                            </div>
+                        </div>
+                    })}
+                </div>
+            })}
+        </div>
+    }
+}
+
+/// A single event row in the timeline.
+#[component]
+fn EventRow(event: EventResponse) -> impl IntoView {
+    let event_type_display = event.event_type_display().to_string();
+    let event_icon = event.event_icon().to_string();
+    let event_color = event.event_color().to_string();
+
+    // Format timestamp
+    let timestamp = chrono::DateTime::from_timestamp_millis(event.timestamp_ms)
+        .map(|dt| dt.format("%H:%M:%S%.3f").to_string())
+        .unwrap_or_else(|| format!("{}ms", event.timestamp_ms));
+
+    // Build metadata display
+    let metadata_items: Vec<(String, String)> = event
+        .metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    view! {
+        <div class="flex items-start gap-3 text-sm">
+            // Timeline dot
+            <div class="flex-shrink-0 pt-0.5">
+                <span class=format!("{}", event_color)>{event_icon}</span>
+            </div>
+
+            // Event content
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="font-medium text-gray-200">{event_type_display}</span>
+                    <span class="text-xs text-gray-500 font-mono">{timestamp}</span>
+                </div>
+
+                // Metadata (if any)
+                {(!metadata_items.is_empty()).then(|| view! {
+                    <div class="mt-1 text-xs text-gray-400 space-x-2">
+                        {metadata_items.iter().map(|(k, v)| {
+                            let key = k.clone();
+                            let value = v.clone();
+                            view! {
+                                <span>
+                                    <span class="text-gray-500">{key}":"</span>
+                                    " "
+                                    <span class="font-mono">{value}</span>
+                                </span>
+                            }
+                        }).collect_view()}
+                    </div>
+                })}
             </div>
         </div>
     }

@@ -46,6 +46,31 @@ pub struct AgentSpec {
     #[prost(message, repeated, tag = "4")]
     pub backends: ::prost::alloc::vec::Vec<ModelBackend>,
 }
+/// Run execution event for tracking execution stages
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RunEvent {
+    /// Unique event identifier
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    /// Run this event belongs to
+    #[prost(string, tag = "2")]
+    pub run_id: ::prost::alloc::string::String,
+    /// Task this event belongs to
+    #[prost(string, tag = "3")]
+    pub task_id: ::prost::alloc::string::String,
+    /// Type of event
+    #[prost(enumeration = "RunEventType", tag = "4")]
+    pub event_type: i32,
+    /// Unix timestamp (milliseconds) when event occurred
+    #[prost(int64, tag = "5")]
+    pub timestamp_ms: i64,
+    /// Event-specific metadata (tool_name, model, error, etc.)
+    #[prost(map = "string, string", tag = "6")]
+    pub metadata: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+}
 /// Information about a worker's capabilities
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerInfo {
@@ -185,10 +210,55 @@ impl WorkerStatus {
         }
     }
 }
+/// Type of run execution event
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RunEventType {
+    Unspecified = 0,
+    ExecutionStarted = 1,
+    SessionInitialized = 2,
+    ToolRequested = 3,
+    ToolCompleted = 4,
+    OutputGenerated = 5,
+    ExecutionCompleted = 6,
+    ExecutionFailed = 7,
+}
+impl RunEventType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "RUN_EVENT_TYPE_UNSPECIFIED",
+            Self::ExecutionStarted => "RUN_EVENT_TYPE_EXECUTION_STARTED",
+            Self::SessionInitialized => "RUN_EVENT_TYPE_SESSION_INITIALIZED",
+            Self::ToolRequested => "RUN_EVENT_TYPE_TOOL_REQUESTED",
+            Self::ToolCompleted => "RUN_EVENT_TYPE_TOOL_COMPLETED",
+            Self::OutputGenerated => "RUN_EVENT_TYPE_OUTPUT_GENERATED",
+            Self::ExecutionCompleted => "RUN_EVENT_TYPE_EXECUTION_COMPLETED",
+            Self::ExecutionFailed => "RUN_EVENT_TYPE_EXECUTION_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "RUN_EVENT_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "RUN_EVENT_TYPE_EXECUTION_STARTED" => Some(Self::ExecutionStarted),
+            "RUN_EVENT_TYPE_SESSION_INITIALIZED" => Some(Self::SessionInitialized),
+            "RUN_EVENT_TYPE_TOOL_REQUESTED" => Some(Self::ToolRequested),
+            "RUN_EVENT_TYPE_TOOL_COMPLETED" => Some(Self::ToolCompleted),
+            "RUN_EVENT_TYPE_OUTPUT_GENERATED" => Some(Self::OutputGenerated),
+            "RUN_EVENT_TYPE_EXECUTION_COMPLETED" => Some(Self::ExecutionCompleted),
+            "RUN_EVENT_TYPE_EXECUTION_FAILED" => Some(Self::ExecutionFailed),
+            _ => None,
+        }
+    }
+}
 /// Wrapper for all messages from worker to control plane
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunClientMessage {
-    #[prost(oneof = "run_client_message::Payload", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "run_client_message::Payload", tags = "1, 2, 3, 4, 5")]
     pub payload: ::core::option::Option<run_client_message::Payload>,
 }
 /// Nested message and enum types in `RunClientMessage`.
@@ -203,6 +273,8 @@ pub mod run_client_message {
         StatusUpdate(super::RunStatusUpdate),
         #[prost(message, tag = "4")]
         OutputChunk(super::RunOutputChunk),
+        #[prost(message, tag = "5")]
+        Event(super::RunEvent),
     }
 }
 /// Initial message from worker announcing its capabilities

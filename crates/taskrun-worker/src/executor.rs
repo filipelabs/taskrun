@@ -12,6 +12,7 @@ use taskrun_claude_sdk::{
     ClaudeExecutor, ClaudeMessage, ContentDelta, ContentItem, ControlHandler, PermissionMode,
     PermissionResult, SdkError, StreamEvent,
 };
+use taskrun_core::{RunEvent, RunId, TaskId};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -44,17 +45,28 @@ pub struct OutputChunk {
     pub is_final: bool,
 }
 
-/// Handler that streams Claude messages as output chunks.
+/// Handler that streams Claude messages as output chunks and emits events.
 struct StreamingHandler {
     output_tx: mpsc::Sender<OutputChunk>,
+    event_tx: mpsc::Sender<RunEvent>,
+    run_id: RunId,
+    task_id: TaskId,
     session_id: Arc<Mutex<Option<String>>>,
     model_used: Arc<Mutex<Option<String>>>,
 }
 
 impl StreamingHandler {
-    fn new(output_tx: mpsc::Sender<OutputChunk>) -> Self {
+    fn new(
+        output_tx: mpsc::Sender<OutputChunk>,
+        event_tx: mpsc::Sender<RunEvent>,
+        run_id: RunId,
+        task_id: TaskId,
+    ) -> Self {
         Self {
             output_tx,
+            event_tx,
+            run_id,
+            task_id,
             session_id: Arc::new(Mutex::new(None)),
             model_used: Arc::new(Mutex::new(None)),
         }
@@ -66,6 +78,12 @@ impl StreamingHandler {
 
     fn model_used(&self) -> Option<String> {
         self.model_used.lock().unwrap().clone()
+    }
+
+    async fn emit_event(&self, event: RunEvent) {
+        if self.event_tx.send(event).await.is_err() {
+            warn!("Failed to send event - receiver dropped");
+        }
     }
 }
 
@@ -116,6 +134,10 @@ impl ControlHandler for StreamingHandler {
             ClaudeMessage::System { session_id, model, .. } => {
                 // Capture session ID and model for future use
                 info!(session_id = ?session_id, model = ?model, "System message received");
+
+                let sid_clone = session_id.clone();
+                let model_clone = model.clone();
+
                 if let Some(sid) = session_id {
                     info!(session_id = %sid, "Captured session ID");
                     *self.session_id.lock().unwrap() = Some(sid);
@@ -124,6 +146,15 @@ impl ControlHandler for StreamingHandler {
                     info!(model = %m, "Captured model used");
                     *self.model_used.lock().unwrap() = Some(m);
                 }
+
+                // Emit SessionInitialized event
+                self.emit_event(RunEvent::session_initialized(
+                    self.run_id.clone(),
+                    self.task_id.clone(),
+                    sid_clone,
+                    model_clone,
+                ))
+                .await;
             }
             ClaudeMessage::Assistant { message, .. } => {
                 // Extract text content and stream it
@@ -159,6 +190,7 @@ impl ControlHandler for StreamingHandler {
             ClaudeMessage::Result {
                 is_error,
                 duration_ms,
+                error,
                 ..
             } => {
                 info!(
@@ -166,12 +198,45 @@ impl ControlHandler for StreamingHandler {
                     duration_ms = ?duration_ms,
                     "Execution result received"
                 );
+
+                // Emit ExecutionCompleted or ExecutionFailed event
+                if is_error == Some(true) {
+                    self.emit_event(RunEvent::execution_failed(
+                        self.run_id.clone(),
+                        self.task_id.clone(),
+                        error,
+                    ))
+                    .await;
+                } else {
+                    self.emit_event(RunEvent::execution_completed(
+                        self.run_id.clone(),
+                        self.task_id.clone(),
+                        duration_ms.map(|d| d as i64),
+                    ))
+                    .await;
+                }
             }
             ClaudeMessage::ToolUse { tool_name, .. } => {
                 info!(tool = %tool_name, "Tool use message");
+
+                // Emit ToolRequested event
+                self.emit_event(RunEvent::tool_requested(
+                    self.run_id.clone(),
+                    self.task_id.clone(),
+                    &tool_name,
+                ))
+                .await;
             }
             ClaudeMessage::ToolResult { is_error, .. } => {
                 info!(is_error = ?is_error, "Tool result message");
+
+                // Emit ToolCompleted event
+                self.emit_event(RunEvent::tool_completed(
+                    self.run_id.clone(),
+                    self.task_id.clone(),
+                    is_error.unwrap_or(false),
+                ))
+                .await;
             }
             ClaudeMessage::Unknown(ref value) => {
                 // Log the full unknown message for debugging
@@ -206,7 +271,7 @@ impl ClaudeCodeExecutor {
         Self { claude_path }
     }
 
-    /// Execute an agent with the given input, streaming output via the channel.
+    /// Execute an agent with the given input, streaming output and events via channels.
     ///
     /// Returns when execution completes (successfully or with error).
     pub async fn execute(
@@ -214,6 +279,9 @@ impl ClaudeCodeExecutor {
         agent_name: &str,
         input_json: &str,
         output_tx: mpsc::Sender<OutputChunk>,
+        event_tx: mpsc::Sender<RunEvent>,
+        run_id: RunId,
+        task_id: TaskId,
     ) -> Result<ExecutionResult, ExecutorError> {
         info!(
             agent = %agent_name,
@@ -221,6 +289,15 @@ impl ClaudeCodeExecutor {
             input_len = input_json.len(),
             "Starting agent execution"
         );
+
+        // Emit ExecutionStarted event
+        if event_tx
+            .send(RunEvent::execution_started(run_id.clone(), task_id.clone()))
+            .await
+            .is_err()
+        {
+            warn!("Failed to send ExecutionStarted event");
+        }
 
         // Build the prompt based on agent type
         let prompt = self.build_prompt(agent_name, input_json)?;
@@ -233,8 +310,8 @@ impl ClaudeCodeExecutor {
         let sdk_executor = ClaudeExecutor::new(&self.claude_path)
             .with_permission_mode(PermissionMode::BypassPermissions);
 
-        // Create streaming handler
-        let handler = Arc::new(StreamingHandler::new(output_tx.clone()));
+        // Create streaming handler with event support
+        let handler = Arc::new(StreamingHandler::new(output_tx.clone(), event_tx, run_id, task_id));
 
         // Execute via SDK
         let result = sdk_executor
@@ -269,9 +346,22 @@ impl ClaudeCodeExecutor {
     /// Build the prompt for a given agent and input.
     fn build_prompt(&self, agent_name: &str, input_json: &str) -> Result<String, ExecutorError> {
         match agent_name {
+            "general" => Ok(self.build_general_prompt(input_json)),
             "support_triage" => Ok(self.build_support_triage_prompt(input_json)),
             _ => Err(ExecutorError::UnknownAgent(agent_name.to_string())),
         }
+    }
+
+    /// Build the general agent prompt - just passes the task directly.
+    fn build_general_prompt(&self, input_json: &str) -> String {
+        // Try to parse as JSON to extract "task" field, otherwise use as-is
+        if let Ok(parsed) = serde_json::from_str::<Value>(input_json) {
+            if let Some(task) = parsed.get("task").and_then(|t| t.as_str()) {
+                return task.to_string();
+            }
+        }
+        // If not JSON or no "task" field, use input directly
+        input_json.to_string()
     }
 
     /// Build the support triage agent prompt.

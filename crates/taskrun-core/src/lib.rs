@@ -8,6 +8,7 @@
 //! All types here represent the core business domain of TaskRun.
 
 pub mod error;
+pub mod event;
 pub mod ids;
 pub mod model;
 pub mod status;
@@ -16,7 +17,8 @@ pub mod worker;
 
 // Re-export commonly used types
 pub use error::CoreError;
-pub use ids::{RunId, TaskId, WorkerId};
+pub use event::{RunEvent, RunEventType};
+pub use ids::{EventId, RunId, TaskId, WorkerId};
 pub use model::{AgentSpec, ModelBackend};
 pub use status::{RunStatus, TaskStatus, WorkerStatus};
 pub use task::{RunSummary, Task};

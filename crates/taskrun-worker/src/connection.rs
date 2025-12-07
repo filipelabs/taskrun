@@ -11,11 +11,12 @@ use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{error, info, warn};
 
-use taskrun_core::{AgentSpec, ModelBackend, WorkerInfo};
+use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerInfo};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    RunAssignment, RunClientMessage, RunOutputChunk, RunStatusUpdate, WorkerHeartbeat, WorkerHello,
+    RunAssignment, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunStatusUpdate,
+    WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::RunServiceClient;
 
@@ -143,13 +144,14 @@ impl WorkerConnection {
     }
 
     fn build_worker_info(&self) -> WorkerInfo {
-        // Hardcoded agent for now
+        // Model backend
         let backend = ModelBackend::new("anthropic", "claude-opus-4-5")
             .with_context_window(200_000)
             .with_modalities(vec!["text".to_string()]);
 
-        let agent = AgentSpec::new("support_triage")
-            .with_description("Support ticket triage agent")
+        // General-purpose agent that can execute any task
+        let agent = AgentSpec::new("general")
+            .with_description("General-purpose agent that executes any task")
             .with_backend(backend);
 
         // Get hostname
@@ -206,6 +208,7 @@ async fn execute_real_run(
     active_count: Arc<AtomicU32>,
 ) {
     let run_id = assignment.run_id.clone();
+    let task_id = assignment.task_id.clone();
 
     // Increment active run count
     active_count.fetch_add(1, Ordering::SeqCst);
@@ -218,12 +221,27 @@ async fn execute_real_run(
     // Create channel for streaming output from executor
     let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
 
+    // Create channel for events from executor
+    let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
+
+    // Spawn event forwarder to send events via gRPC
+    let event_tx_grpc = tx.clone();
+    let event_handle = tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            send_event(&event_tx_grpc, event).await;
+        }
+    });
+
     // Spawn executor in background
     let executor_clone = executor.clone();
     let agent_name = assignment.agent_name.clone();
     let input_json = assignment.input_json.clone();
+    let run_id_clone = RunId::new(&run_id);
+    let task_id_clone = TaskId::new(&task_id);
     let executor_handle = tokio::spawn(async move {
-        executor_clone.execute(&agent_name, &input_json, chunk_tx).await
+        executor_clone
+            .execute(&agent_name, &input_json, chunk_tx, event_tx, run_id_clone, task_id_clone)
+            .await
     });
 
     // Stream chunks as they arrive
@@ -237,6 +255,9 @@ async fn execute_real_run(
 
     // Wait for executor to complete and get result
     let result = executor_handle.await;
+
+    // Wait for event forwarder to finish
+    let _ = event_handle.await;
 
     match result {
         Ok(Ok(exec_result)) => {
@@ -364,6 +385,39 @@ async fn send_output_chunk(
 
     if tx.send(msg).await.is_err() {
         warn!(run_id = %run_id, seq = seq, "Failed to send output chunk");
+    }
+}
+
+/// Send a run event to the control plane.
+async fn send_event(tx: &mpsc::Sender<RunClientMessage>, event: RunEvent) {
+    use taskrun_core::RunEventType;
+
+    // Convert domain event type to proto event type
+    let proto_event_type = match event.event_type {
+        RunEventType::ExecutionStarted => taskrun_proto::pb::RunEventType::ExecutionStarted,
+        RunEventType::SessionInitialized => taskrun_proto::pb::RunEventType::SessionInitialized,
+        RunEventType::ToolRequested => taskrun_proto::pb::RunEventType::ToolRequested,
+        RunEventType::ToolCompleted => taskrun_proto::pb::RunEventType::ToolCompleted,
+        RunEventType::OutputGenerated => taskrun_proto::pb::RunEventType::OutputGenerated,
+        RunEventType::ExecutionCompleted => taskrun_proto::pb::RunEventType::ExecutionCompleted,
+        RunEventType::ExecutionFailed => taskrun_proto::pb::RunEventType::ExecutionFailed,
+    };
+
+    let proto_event = ProtoRunEvent {
+        id: event.id.into_inner(),
+        run_id: event.run_id.into_inner(),
+        task_id: event.task_id.into_inner(),
+        event_type: proto_event_type as i32,
+        timestamp_ms: event.timestamp_ms,
+        metadata: event.metadata,
+    };
+
+    let msg = RunClientMessage {
+        payload: Some(ClientPayload::Event(proto_event)),
+    };
+
+    if tx.send(msg).await.is_err() {
+        warn!("Failed to send event");
     }
 }
 

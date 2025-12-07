@@ -33,6 +33,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // API routes
         .route("/v1/enroll", post(handlers::enroll))
         .route("/v1/workers", get(handlers::list_workers_json))
+        .route("/v1/tasks/:task_id/events", get(handlers::get_task_events))
+        .route("/v1/tasks/:task_id/output", get(handlers::get_task_output))
         // UI routes
         .route("/ui/workers", get(handlers::list_workers_html))
         // Observability routes

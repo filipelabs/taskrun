@@ -36,6 +36,68 @@ pub struct HealthResponse {
     pub status: String,
 }
 
+/// Run event response from the control plane.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EventResponse {
+    pub id: String,
+    pub run_id: String,
+    pub task_id: String,
+    pub event_type: String,
+    pub timestamp_ms: i64,
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl EventResponse {
+    /// Get a display-friendly name for the event type.
+    pub fn event_type_display(&self) -> &str {
+        match self.event_type.as_str() {
+            "execution_started" => "Execution Started",
+            "session_initialized" => "Session Initialized",
+            "tool_requested" => "Tool Requested",
+            "tool_completed" => "Tool Completed",
+            "output_generated" => "Output Generated",
+            "execution_completed" => "Execution Completed",
+            "execution_failed" => "Execution Failed",
+            _ => &self.event_type,
+        }
+    }
+
+    /// Get an icon/emoji for the event type.
+    pub fn event_icon(&self) -> &str {
+        match self.event_type.as_str() {
+            "execution_started" => "▶",
+            "session_initialized" => "🔗",
+            "tool_requested" => "🔧",
+            "tool_completed" => "✓",
+            "output_generated" => "📝",
+            "execution_completed" => "✅",
+            "execution_failed" => "❌",
+            _ => "•",
+        }
+    }
+
+    /// Get the CSS color class for the event type.
+    pub fn event_color(&self) -> &str {
+        match self.event_type.as_str() {
+            "execution_started" => "text-blue-400",
+            "session_initialized" => "text-purple-400",
+            "tool_requested" => "text-yellow-400",
+            "tool_completed" => "text-green-400",
+            "output_generated" => "text-gray-400",
+            "execution_completed" => "text-green-500",
+            "execution_failed" => "text-red-500",
+            _ => "text-gray-400",
+        }
+    }
+}
+
+/// Task output response from the control plane.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OutputResponse {
+    pub task_id: String,
+    pub output: Option<String>,
+}
+
 /// Parsed metrics from Prometheus format.
 #[derive(Debug, Clone, Default)]
 pub struct Metrics {

@@ -84,6 +84,43 @@ message AgentSpec {
 }
 
 // ============================================================================
+// Run Event
+// ============================================================================
+
+// Type of run execution event
+enum RunEventType {
+  RUN_EVENT_TYPE_UNSPECIFIED = 0;
+  RUN_EVENT_TYPE_EXECUTION_STARTED = 1;
+  RUN_EVENT_TYPE_SESSION_INITIALIZED = 2;
+  RUN_EVENT_TYPE_TOOL_REQUESTED = 3;
+  RUN_EVENT_TYPE_TOOL_COMPLETED = 4;
+  RUN_EVENT_TYPE_OUTPUT_GENERATED = 5;
+  RUN_EVENT_TYPE_EXECUTION_COMPLETED = 6;
+  RUN_EVENT_TYPE_EXECUTION_FAILED = 7;
+}
+
+// Run execution event for tracking execution stages
+message RunEvent {
+  // Unique event identifier
+  string id = 1;
+
+  // Run this event belongs to
+  string run_id = 2;
+
+  // Task this event belongs to
+  string task_id = 3;
+
+  // Type of event
+  RunEventType event_type = 4;
+
+  // Unix timestamp (milliseconds) when event occurred
+  int64 timestamp_ms = 5;
+
+  // Event-specific metadata (tool_name, model, error, etc.)
+  map<string, string> metadata = 6;
+}
+
+// ============================================================================
 // Worker Information
 // ============================================================================
 

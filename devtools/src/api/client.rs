@@ -2,7 +2,7 @@
 
 use gloo_net::http::Request;
 
-use super::types::{HealthResponse, Metrics, WorkerResponse};
+use super::types::{EventResponse, HealthResponse, Metrics, OutputResponse, WorkerResponse};
 
 /// Base URL for the control plane HTTP API.
 const BASE_URL: &str = "http://[::1]:50052";
@@ -40,4 +40,26 @@ pub async fn fetch_metrics() -> Result<Metrics, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(Metrics::from_prometheus(&text))
+}
+
+/// Fetch events for a specific task.
+pub async fn fetch_task_events(task_id: &str) -> Result<Vec<EventResponse>, String> {
+    Request::get(&format!("{}/v1/tasks/{}/events", BASE_URL, task_id))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fetch output for a specific task.
+pub async fn fetch_task_output(task_id: &str) -> Result<OutputResponse, String> {
+    Request::get(&format!("{}/v1/tasks/{}/output", BASE_URL, task_id))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
 }
