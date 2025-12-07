@@ -114,7 +114,11 @@ impl TaskService for TaskServiceImpl {
         request: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = request.into_inner();
-        let limit = if req.limit > 0 { req.limit as usize } else { 100 };
+        let limit = if req.limit > 0 {
+            req.limit as usize
+        } else {
+            100
+        };
 
         let tasks = self.state.tasks.read().await;
 

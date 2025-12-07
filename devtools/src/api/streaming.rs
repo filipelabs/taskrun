@@ -51,11 +51,7 @@ struct ResponsesRequest {
 /// 2. Reads the response as a ReadableStream
 /// 3. Parses SSE events and calls the callback for each
 /// 4. Returns when the stream is complete or fails
-pub async fn stream_response<F>(
-    model: &str,
-    input: &str,
-    mut on_event: F,
-) -> Result<(), String>
+pub async fn stream_response<F>(model: &str, input: &str, mut on_event: F) -> Result<(), String>
 where
     F: FnMut(SseEvent),
 {
@@ -83,8 +79,7 @@ where
     init.set_mode(RequestMode::Cors);
 
     // Create request
-    let request = Request::new_with_str_and_init(&url, &init)
-        .map_err(|e| format!("{:?}", e))?;
+    let request = Request::new_with_str_and_init(&url, &init).map_err(|e| format!("{:?}", e))?;
 
     // Fetch
     let window = web_sys::window().ok_or("No window")?;
@@ -129,8 +124,8 @@ where
         }
 
         // Get value
-        let value = Reflect::get(&result_obj, &JsValue::from_str("value"))
-            .map_err(|_| "No value field")?;
+        let value =
+            Reflect::get(&result_obj, &JsValue::from_str("value")).map_err(|_| "No value field")?;
 
         if value.is_undefined() {
             continue;

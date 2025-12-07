@@ -10,11 +10,14 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
-use taskrun_core::{RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{
+    RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo,
+    WorkerStatus,
+};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage,
-    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
+    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage, RunStatusUpdate,
+    WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
 

@@ -144,7 +144,7 @@ async fn list_tasks(channel: Channel) -> Result<(), Box<dyn std::error::Error>> 
     let mut client = TaskServiceClient::new(channel);
 
     let request = ListTasksRequest {
-        status_filter: 0,  // 0 = no filter
+        status_filter: 0, // 0 = no filter
         agent_filter: String::new(),
         limit: 100,
     };
@@ -153,13 +153,19 @@ async fn list_tasks(channel: Channel) -> Result<(), Box<dyn std::error::Error>> 
     let resp = response.into_inner();
 
     println!("Tasks ({}):", resp.tasks.len());
-    println!("{:<36}  {:<10}  {:<16}  {}", "ID", "STATUS", "AGENT", "CREATED");
+    println!(
+        "{:<36}  {:<10}  {:<16}  {}",
+        "ID", "STATUS", "AGENT", "CREATED"
+    );
     println!("{}", "-".repeat(80));
 
     for task in resp.tasks {
         let status = status_name(task.status);
         let created = format_timestamp(task.created_at_ms);
-        println!("{:<36}  {:<10}  {:<16}  {}", task.id, status, task.agent_name, created);
+        println!(
+            "{:<36}  {:<10}  {:<16}  {}",
+            task.id, status, task.agent_name, created
+        );
     }
 
     Ok(())
@@ -177,7 +183,10 @@ async fn list_workers(channel: Channel) -> Result<(), Box<dyn std::error::Error>
     let resp = response.into_inner();
 
     println!("Workers ({}):", resp.workers.len());
-    println!("{:<36}  {:<10}  {:<10}  {}", "ID", "STATUS", "RUNS", "AGENTS");
+    println!(
+        "{:<36}  {:<10}  {:<10}  {}",
+        "ID", "STATUS", "RUNS", "AGENTS"
+    );
     println!("{}", "-".repeat(80));
 
     for worker in resp.workers {
@@ -185,7 +194,10 @@ async fn list_workers(channel: Channel) -> Result<(), Box<dyn std::error::Error>
         let agents: Vec<String> = worker.agents.iter().map(|a| a.name.clone()).collect();
         let agents_str = agents.join(", ");
         let runs = format!("{}/{}", worker.active_runs, worker.max_concurrent_runs);
-        println!("{:<36}  {:<10}  {:<10}  {}", worker.worker_id, status, runs, agents_str);
+        println!(
+            "{:<36}  {:<10}  {:<10}  {}",
+            worker.worker_id, status, runs, agents_str
+        );
     }
 
     Ok(())

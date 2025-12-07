@@ -45,7 +45,9 @@ impl WorkerConnection {
 
     /// Connect to control plane and run the main loop.
     /// Returns on disconnect (caller should handle reconnection).
-    pub async fn connect_and_run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn connect_and_run(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(addr = %self.config.control_plane_addr, "Connecting to control plane with mTLS");
 
         // Load CA certificate for pinned trust
@@ -240,7 +242,14 @@ async fn execute_real_run(
     let task_id_clone = TaskId::new(&task_id);
     let executor_handle = tokio::spawn(async move {
         executor_clone
-            .execute(&agent_name, &input_json, chunk_tx, event_tx, run_id_clone, task_id_clone)
+            .execute(
+                &agent_name,
+                &input_json,
+                chunk_tx,
+                event_tx,
+                run_id_clone,
+                task_id_clone,
+            )
             .await
     });
 

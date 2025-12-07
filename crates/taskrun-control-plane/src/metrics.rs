@@ -45,8 +45,16 @@ async fn collect_worker_metrics(state: &Arc<AppState>, output: &mut String) {
     )
     .ok();
     writeln!(output, "# TYPE taskrun_workers_connected gauge").ok();
-    writeln!(output, "taskrun_workers_connected{{status=\"idle\"}} {idle}").ok();
-    writeln!(output, "taskrun_workers_connected{{status=\"busy\"}} {busy}").ok();
+    writeln!(
+        output,
+        "taskrun_workers_connected{{status=\"idle\"}} {idle}"
+    )
+    .ok();
+    writeln!(
+        output,
+        "taskrun_workers_connected{{status=\"busy\"}} {busy}"
+    )
+    .ok();
     writeln!(
         output,
         "taskrun_workers_connected{{status=\"draining\"}} {draining}"
@@ -88,8 +96,16 @@ async fn collect_task_metrics(state: &Arc<AppState>, output: &mut String) {
     )
     .ok();
     writeln!(output, "# TYPE taskrun_tasks_total gauge").ok();
-    writeln!(output, "taskrun_tasks_total{{status=\"pending\"}} {pending}").ok();
-    writeln!(output, "taskrun_tasks_total{{status=\"running\"}} {running}").ok();
+    writeln!(
+        output,
+        "taskrun_tasks_total{{status=\"pending\"}} {pending}"
+    )
+    .ok();
+    writeln!(
+        output,
+        "taskrun_tasks_total{{status=\"running\"}} {running}"
+    )
+    .ok();
     writeln!(
         output,
         "taskrun_tasks_total{{status=\"completed\"}} {completed}"

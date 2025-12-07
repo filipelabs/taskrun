@@ -39,29 +39,27 @@ pub fn Playground() -> impl IntoView {
         let set_error_clone = set_error.clone();
 
         spawn_local(async move {
-            let result = stream_response("general", &prompt_value, |event| {
-                match event {
-                    SseEvent::Created(created) => {
-                        set_response_id_clone.set(Some(created.id));
-                        set_status_clone.set(StreamingStatus::Streaming);
+            let result = stream_response("general", &prompt_value, |event| match event {
+                SseEvent::Created(created) => {
+                    set_response_id_clone.set(Some(created.id));
+                    set_status_clone.set(StreamingStatus::Streaming);
+                }
+                SseEvent::Delta(delta) => {
+                    let mut buffer = output_buffer_clone.borrow_mut();
+                    buffer.push_str(&delta.delta.text);
+                    set_output_clone.set(buffer.clone());
+                }
+                SseEvent::Completed(_) => {
+                    set_status_clone.set(StreamingStatus::Completed);
+                }
+                SseEvent::Failed(failed) => {
+                    set_status_clone.set(StreamingStatus::Failed);
+                    if let Some(err) = failed.error {
+                        set_error_clone.set(Some(err.message));
                     }
-                    SseEvent::Delta(delta) => {
-                        let mut buffer = output_buffer_clone.borrow_mut();
-                        buffer.push_str(&delta.delta.text);
-                        set_output_clone.set(buffer.clone());
-                    }
-                    SseEvent::Completed(_) => {
-                        set_status_clone.set(StreamingStatus::Completed);
-                    }
-                    SseEvent::Failed(failed) => {
-                        set_status_clone.set(StreamingStatus::Failed);
-                        if let Some(err) = failed.error {
-                            set_error_clone.set(Some(err.message));
-                        }
-                    }
-                    SseEvent::Unknown(event_type, _) => {
-                        web_sys::console::log_1(&format!("Unknown SSE event: {}", event_type).into());
-                    }
+                }
+                SseEvent::Unknown(event_type, _) => {
+                    web_sys::console::log_1(&format!("Unknown SSE event: {}", event_type).into());
                 }
             })
             .await;
@@ -73,14 +71,12 @@ pub fn Playground() -> impl IntoView {
         });
     };
 
-    let status_display = move || {
-        match status.get() {
-            StreamingStatus::Idle => ("Idle", "text-gray-400"),
-            StreamingStatus::Connecting => ("Connecting...", "text-yellow-400"),
-            StreamingStatus::Streaming => ("Streaming...", "text-blue-400"),
-            StreamingStatus::Completed => ("Completed", "text-green-400"),
-            StreamingStatus::Failed => ("Failed", "text-red-400"),
-        }
+    let status_display = move || match status.get() {
+        StreamingStatus::Idle => ("Idle", "text-gray-400"),
+        StreamingStatus::Connecting => ("Connecting...", "text-yellow-400"),
+        StreamingStatus::Streaming => ("Streaming...", "text-blue-400"),
+        StreamingStatus::Completed => ("Completed", "text-green-400"),
+        StreamingStatus::Failed => ("Failed", "text-red-400"),
     };
 
     view! {

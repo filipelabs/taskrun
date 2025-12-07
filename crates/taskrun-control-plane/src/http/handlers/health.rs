@@ -2,12 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::{
-    extract::State,
-    http::header,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::header, response::IntoResponse, Json};
 
 use crate::state::AppState;
 
@@ -19,8 +14,5 @@ pub async fn health_check() -> impl IntoResponse {
 /// Prometheus metrics endpoint.
 pub async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let body = crate::metrics::collect_metrics(&state).await;
-    (
-        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-        body,
-    )
+    ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body)
 }

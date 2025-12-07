@@ -2,12 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::{
-    extract::State,
-    http::header,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::header, response::IntoResponse, Json};
 
 use crate::http::responses::{AgentResponse, BackendResponse, WorkerResponse};
 use crate::state::AppState;
@@ -159,7 +154,10 @@ pub async fn list_workers_html(State(state): State<Arc<AppState>>) -> impl IntoR
 }
 
 /// Format a duration as a human-readable relative time.
-fn format_relative_time(now: chrono::DateTime<chrono::Utc>, then: chrono::DateTime<chrono::Utc>) -> String {
+fn format_relative_time(
+    now: chrono::DateTime<chrono::Utc>,
+    then: chrono::DateTime<chrono::Utc>,
+) -> String {
     let duration = now.signed_duration_since(then);
     if duration.num_seconds() < 60 {
         format!("{}s ago", duration.num_seconds())

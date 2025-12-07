@@ -164,26 +164,18 @@ impl SseEvent {
     /// Parse an SSE event from event type and JSON data.
     pub fn parse(event_type: &str, data: &str) -> Option<Self> {
         match event_type {
-            "response.created" => {
-                serde_json::from_str::<ResponseCreatedEvent>(data)
-                    .ok()
-                    .map(SseEvent::Created)
-            }
-            "response.output_text.delta" => {
-                serde_json::from_str::<OutputTextDeltaEvent>(data)
-                    .ok()
-                    .map(SseEvent::Delta)
-            }
-            "response.completed" => {
-                serde_json::from_str::<ResponseCompletedEvent>(data)
-                    .ok()
-                    .map(SseEvent::Completed)
-            }
-            "response.failed" => {
-                serde_json::from_str::<ResponseFailedEvent>(data)
-                    .ok()
-                    .map(SseEvent::Failed)
-            }
+            "response.created" => serde_json::from_str::<ResponseCreatedEvent>(data)
+                .ok()
+                .map(SseEvent::Created),
+            "response.output_text.delta" => serde_json::from_str::<OutputTextDeltaEvent>(data)
+                .ok()
+                .map(SseEvent::Delta),
+            "response.completed" => serde_json::from_str::<ResponseCompletedEvent>(data)
+                .ok()
+                .map(SseEvent::Completed),
+            "response.failed" => serde_json::from_str::<ResponseFailedEvent>(data)
+                .ok()
+                .map(SseEvent::Failed),
             _ => Some(SseEvent::Unknown(event_type.to_string(), data.to_string())),
         }
     }
@@ -253,6 +245,10 @@ impl Metrics {
 
     /// Total number of tasks.
     pub fn total_tasks(&self) -> u32 {
-        self.tasks_pending + self.tasks_running + self.tasks_completed + self.tasks_failed + self.tasks_cancelled
+        self.tasks_pending
+            + self.tasks_running
+            + self.tasks_completed
+            + self.tasks_failed
+            + self.tasks_cancelled
     }
 }

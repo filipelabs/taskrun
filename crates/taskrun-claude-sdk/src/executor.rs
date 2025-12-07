@@ -182,8 +182,7 @@ impl ClaudeExecutor {
         }
 
         if let Some(tokens) = self.max_thinking_tokens {
-            cmd.arg("--max-thinking-tokens")
-                .arg(tokens.to_string());
+            cmd.arg("--max-thinking-tokens").arg(tokens.to_string());
         }
 
         if let Some(system) = &self.system_prompt {
@@ -275,7 +274,11 @@ impl ClaudeExecutor {
                         }
 
                         message_count += 1;
-                        info!(message_num = message_count, bytes = bytes, "Received message from Claude");
+                        info!(
+                            message_num = message_count,
+                            bytes = bytes,
+                            "Received message from Claude"
+                        );
 
                         match serde_json::from_str::<crate::types::ClaudeMessage>(trimmed) {
                             Ok(message) => {
@@ -305,7 +308,11 @@ impl ClaudeExecutor {
         let status = child.wait().await?;
 
         let exit_code = status.code().unwrap_or(-1);
-        info!(exit_code = exit_code, success = status.success(), "Claude process exited");
+        info!(
+            exit_code = exit_code,
+            success = status.success(),
+            "Claude process exited"
+        );
 
         if !status.success() {
             return Err(SdkError::ProcessError(format!(

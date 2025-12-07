@@ -89,9 +89,8 @@ pub fn Tasks() -> impl IntoView {
     let (connected, set_connected) = create_signal(false);
     let (error, set_error) = create_signal::<Option<String>>(None);
     let (agent_name, _set_agent_name) = create_signal(String::from("general"));
-    let (task_prompt, set_task_prompt) = create_signal(String::from(
-        "What is 2 + 2? Answer briefly.",
-    ));
+    let (task_prompt, set_task_prompt) =
+        create_signal(String::from("What is 2 + 2? Answer briefly."));
 
     // Connect to gRPC on mount
     let connect = move || {

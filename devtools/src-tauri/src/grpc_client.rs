@@ -17,10 +17,10 @@ impl GrpcClient {
     fn find_certs_dir() -> Option<std::path::PathBuf> {
         // Try paths relative to various possible working directories
         let candidates = [
-            "certs",                     // From project root
-            "../certs",                  // From devtools/
-            "../../certs",               // From devtools/src-tauri/
-            "../../../certs",            // From deeper paths
+            "certs",          // From project root
+            "../certs",       // From devtools/
+            "../../certs",    // From devtools/src-tauri/
+            "../../../certs", // From deeper paths
         ];
 
         for candidate in &candidates {
@@ -40,11 +40,12 @@ impl GrpcClient {
     /// - `worker.key` - Client private key
     pub async fn connect() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Find the certificates directory
-        let certs_dir = Self::find_certs_dir()
-            .ok_or_else(|| format!(
+        let certs_dir = Self::find_certs_dir().ok_or_else(|| {
+            format!(
                 "Could not find certs directory. CWD: {:?}",
                 std::env::current_dir().ok()
-            ))?;
+            )
+        })?;
 
         let ca_cert = std::fs::read(certs_dir.join("ca.crt"))?;
         let client_cert = std::fs::read(certs_dir.join("worker.crt"))?;

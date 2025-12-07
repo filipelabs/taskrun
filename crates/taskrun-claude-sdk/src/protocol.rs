@@ -65,11 +65,7 @@ impl ProtocolPeer {
     /// and spawns a background task to handle incoming messages.
     ///
     /// Returns the peer for sending messages.
-    pub fn spawn(
-        stdin: ChildStdin,
-        stdout: ChildStdout,
-        handler: Arc<dyn ControlHandler>,
-    ) -> Self {
+    pub fn spawn(stdin: ChildStdin, stdout: ChildStdout, handler: Arc<dyn ControlHandler>) -> Self {
         info!("ProtocolPeer::spawn - starting read loop");
         let stdin = Arc::new(Mutex::new(stdin));
         let stdin_clone = Arc::clone(&stdin);
@@ -111,7 +107,10 @@ impl ProtocolPeer {
     /// Send a JSON message to Claude's stdin.
     async fn send_json<T: serde::Serialize>(&self, message: &T) -> Result<(), SdkError> {
         let json = serde_json::to_string(message)?;
-        info!(json_len = json.len(), "Sending control message to Claude stdin");
+        info!(
+            json_len = json.len(),
+            "Sending control message to Claude stdin"
+        );
         trace!("Sending to stdin: {}", json);
 
         let mut stdin = self.stdin.lock().await;
@@ -138,7 +137,10 @@ impl ProtocolPeer {
             let bytes_read = reader.read_line(&mut line).await?;
 
             if bytes_read == 0 {
-                info!(total_messages = message_count, "Claude process stdout closed (EOF)");
+                info!(
+                    total_messages = message_count,
+                    "Claude process stdout closed (EOF)"
+                );
                 break;
             }
 
@@ -220,18 +222,16 @@ impl ProtocolPeer {
         let response = match request {
             ControlRequest::CanUseTool {
                 tool_name, input, ..
-            } => {
-                match handler.on_can_use_tool(tool_name, input).await {
-                    Ok(result) => ControlResponse::new(ControlResponseType::Success {
-                        request_id: request_id.clone(),
-                        response: Some(serde_json::to_value(result)?),
-                    }),
-                    Err(e) => ControlResponse::new(ControlResponseType::Error {
-                        request_id: request_id.clone(),
-                        error: Some(e.to_string()),
-                    }),
-                }
-            }
+            } => match handler.on_can_use_tool(tool_name, input).await {
+                Ok(result) => ControlResponse::new(ControlResponseType::Success {
+                    request_id: request_id.clone(),
+                    response: Some(serde_json::to_value(result)?),
+                }),
+                Err(e) => ControlResponse::new(ControlResponseType::Error {
+                    request_id: request_id.clone(),
+                    error: Some(e.to_string()),
+                }),
+            },
             ControlRequest::HookCallback {
                 callback_id,
                 input,
@@ -318,10 +318,9 @@ mod tests {
 
     #[test]
     fn test_sdk_control_request_serialization() {
-        let request =
-            SdkControlRequest::new(SdkControlRequestType::SetPermissionMode {
-                mode: PermissionMode::BypassPermissions,
-            });
+        let request = SdkControlRequest::new(SdkControlRequestType::SetPermissionMode {
+            mode: PermissionMode::BypassPermissions,
+        });
 
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("control_request"));

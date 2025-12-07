@@ -465,7 +465,8 @@ mod tests {
 
     #[test]
     fn test_system_message_parsing() {
-        let json = r#"{"type":"system","subtype":"init","session_id":"abc123","model":"claude-sonnet-4"}"#;
+        let json =
+            r#"{"type":"system","subtype":"init","session_id":"abc123","model":"claude-sonnet-4"}"#;
         let msg: ClaudeMessage = serde_json::from_str(json).unwrap();
 
         assert!(matches!(msg, ClaudeMessage::System { .. }));

@@ -176,7 +176,10 @@ pub enum ApiError {
     /// Missing required field.
     MissingField { field: &'static str },
     /// Invalid field value.
-    InvalidField { field: &'static str, message: String },
+    InvalidField {
+        field: &'static str,
+        message: String,
+    },
     /// Model/agent not found.
     ModelNotFound { model: String },
 
@@ -367,7 +370,9 @@ pub async fn create_response(
     if req.stream {
         create_streaming_response(state, req).await.into_response()
     } else {
-        create_non_streaming_response(state, req).await.into_response()
+        create_non_streaming_response(state, req)
+            .await
+            .into_response()
     }
 }
 
@@ -420,8 +425,10 @@ async fn create_streaming_response(
     for (k, v) in &req.metadata {
         task.labels.insert(k.clone(), v.clone());
     }
-    task.labels.insert("source".to_string(), "openai_api".to_string());
-    task.labels.insert("streaming".to_string(), "true".to_string());
+    task.labels
+        .insert("source".to_string(), "openai_api".to_string());
+    task.labels
+        .insert("streaming".to_string(), "true".to_string());
 
     let task_id = task.id.clone();
     let created_at = task.created_at.timestamp();
@@ -512,36 +519,39 @@ fn create_sse_stream(
     let state = (receiver, response_id, false);
 
     // Use unfold to properly manage async state with termination
-    let event_stream = stream::unfold(state, |(mut receiver, response_id, terminated)| async move {
-        if terminated {
-            return None;
-        }
+    let event_stream = stream::unfold(
+        state,
+        |(mut receiver, response_id, terminated)| async move {
+            if terminated {
+                return None;
+            }
 
-        // Use the receiver directly instead of BroadcastStream
-        match receiver.recv().await {
-            Ok(event) => {
-                let is_terminal = matches!(
-                    &event,
-                    StreamEvent::StatusUpdate { status, .. }
-                        if status.is_terminal()
-                );
-                let sse_event = stream_event_to_sse(event, &response_id);
-                Some((sse_event, (receiver, response_id, is_terminal)))
+            // Use the receiver directly instead of BroadcastStream
+            match receiver.recv().await {
+                Ok(event) => {
+                    let is_terminal = matches!(
+                        &event,
+                        StreamEvent::StatusUpdate { status, .. }
+                            if status.is_terminal()
+                    );
+                    let sse_event = stream_event_to_sse(event, &response_id);
+                    Some((sse_event, (receiver, response_id, is_terminal)))
+                }
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!(skipped = n, "Broadcast stream lagged, skipping events");
+                    // Continue receiving after lag
+                    Some((
+                        Ok(Event::default().comment(format!("skipped {} events", n))),
+                        (receiver, response_id, false),
+                    ))
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    // Channel closed, stream ends
+                    None
+                }
             }
-            Err(broadcast::error::RecvError::Lagged(n)) => {
-                warn!(skipped = n, "Broadcast stream lagged, skipping events");
-                // Continue receiving after lag
-                Some((
-                    Ok(Event::default().comment(format!("skipped {} events", n))),
-                    (receiver, response_id, false),
-                ))
-            }
-            Err(broadcast::error::RecvError::Closed) => {
-                // Channel closed, stream ends
-                None
-            }
-        }
-    });
+        },
+    );
 
     // Chain initial event with the broadcast stream
     initial.chain(event_stream)
@@ -629,7 +639,8 @@ async fn create_non_streaming_response(
     for (k, v) in &req.metadata {
         task.labels.insert(k.clone(), v.clone());
     }
-    task.labels.insert("source".to_string(), "openai_api".to_string());
+    task.labels
+        .insert("source".to_string(), "openai_api".to_string());
 
     let task_id = task.id.clone();
 
@@ -651,10 +662,7 @@ async fn create_non_streaming_response(
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to assign task");
-            return ApiError::NoWorkersAvailable {
-                agent: agent_name,
-            }
-            .into_response();
+            return ApiError::NoWorkersAvailable { agent: agent_name }.into_response();
         }
     };
 

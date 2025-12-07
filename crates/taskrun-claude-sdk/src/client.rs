@@ -50,7 +50,9 @@ impl AutoApproveHandler {
     /// Create a handler with a bounded channel.
     ///
     /// This is useful when you want backpressure on message processing.
-    pub fn with_capacity(capacity: usize) -> (BoundedAutoApproveHandler, mpsc::Receiver<ClaudeMessage>) {
+    pub fn with_capacity(
+        capacity: usize,
+    ) -> (BoundedAutoApproveHandler, mpsc::Receiver<ClaudeMessage>) {
         let (tx, rx) = mpsc::channel(capacity);
         (BoundedAutoApproveHandler { message_tx: tx }, rx)
     }

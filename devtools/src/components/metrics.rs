@@ -157,12 +157,7 @@ pub fn Metrics() -> impl IntoView {
 
 /// Simple bar chart component.
 #[component]
-fn BarChart<F, M>(
-    value: F,
-    max: M,
-    label: &'static str,
-    color: &'static str,
-) -> impl IntoView
+fn BarChart<F, M>(value: F, max: M, label: &'static str, color: &'static str) -> impl IntoView
 where
     F: Fn() -> u32 + Copy + 'static,
     M: Fn() -> u32 + Copy + 'static,

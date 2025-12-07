@@ -109,7 +109,9 @@ pub async fn is_grpc_connected(client: State<'_, ClientState>) -> Result<bool, S
 #[tauri::command]
 pub async fn list_tasks(client: State<'_, ClientState>) -> Result<Vec<TaskResponse>, String> {
     let mut guard = client.lock().await;
-    let grpc_client = guard.as_mut().ok_or("gRPC client not connected. Call connect_grpc first.")?;
+    let grpc_client = guard
+        .as_mut()
+        .ok_or("gRPC client not connected. Call connect_grpc first.")?;
     let tasks = grpc_client.list_tasks(100).await?;
     Ok(tasks.into_iter().map(task_to_response).collect())
 }
@@ -122,7 +124,9 @@ pub async fn create_task(
     client: State<'_, ClientState>,
 ) -> Result<TaskResponse, String> {
     let mut guard = client.lock().await;
-    let grpc_client = guard.as_mut().ok_or("gRPC client not connected. Call connect_grpc first.")?;
+    let grpc_client = guard
+        .as_mut()
+        .ok_or("gRPC client not connected. Call connect_grpc first.")?;
     let task = grpc_client.create_task(agent_name, input_json).await?;
     Ok(task_to_response(task))
 }
@@ -131,16 +135,23 @@ pub async fn create_task(
 #[tauri::command]
 pub async fn get_task(id: String, client: State<'_, ClientState>) -> Result<TaskResponse, String> {
     let mut guard = client.lock().await;
-    let grpc_client = guard.as_mut().ok_or("gRPC client not connected. Call connect_grpc first.")?;
+    let grpc_client = guard
+        .as_mut()
+        .ok_or("gRPC client not connected. Call connect_grpc first.")?;
     let task = grpc_client.get_task(id).await?;
     Ok(task_to_response(task))
 }
 
 /// Cancel a task by ID.
 #[tauri::command]
-pub async fn cancel_task(id: String, client: State<'_, ClientState>) -> Result<TaskResponse, String> {
+pub async fn cancel_task(
+    id: String,
+    client: State<'_, ClientState>,
+) -> Result<TaskResponse, String> {
     let mut guard = client.lock().await;
-    let grpc_client = guard.as_mut().ok_or("gRPC client not connected. Call connect_grpc first.")?;
+    let grpc_client = guard
+        .as_mut()
+        .ok_or("gRPC client not connected. Call connect_grpc first.")?;
     let task = grpc_client.cancel_task(id).await?;
     Ok(task_to_response(task))
 }

@@ -46,8 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         info!(
             delay_secs = config.reconnect_delay_secs,
-            "Reconnecting in {} seconds...",
-            config.reconnect_delay_secs
+            "Reconnecting in {} seconds...", config.reconnect_delay_secs
         );
         tokio::time::sleep(Duration::from_secs(config.reconnect_delay_secs)).await;
     }

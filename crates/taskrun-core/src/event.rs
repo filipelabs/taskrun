@@ -44,7 +44,12 @@ impl RunEvent {
 
     /// Create an ExecutionStarted event.
     pub fn execution_started(run_id: RunId, task_id: TaskId) -> Self {
-        Self::new(run_id, task_id, RunEventType::ExecutionStarted, HashMap::new())
+        Self::new(
+            run_id,
+            task_id,
+            RunEventType::ExecutionStarted,
+            HashMap::new(),
+        )
     }
 
     /// Create a SessionInitialized event with session and model info.

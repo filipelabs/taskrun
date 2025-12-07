@@ -131,7 +131,9 @@ impl ControlHandler for StreamingHandler {
         info!(message_type = msg_type, "StreamingHandler received message");
 
         match message {
-            ClaudeMessage::System { session_id, model, .. } => {
+            ClaudeMessage::System {
+                session_id, model, ..
+            } => {
                 // Capture session ID and model for future use
                 info!(session_id = ?session_id, model = ?model, "System message received");
 
@@ -158,7 +160,10 @@ impl ControlHandler for StreamingHandler {
             }
             ClaudeMessage::Assistant { message, .. } => {
                 // Extract text content and stream it
-                info!(content_count = message.content.len(), "Assistant message received");
+                info!(
+                    content_count = message.content.len(),
+                    "Assistant message received"
+                );
                 for content in message.content {
                     if let ContentItem::Text { text } = content {
                         info!(text_len = text.len(), "Streaming assistant text chunk");
@@ -176,7 +181,11 @@ impl ControlHandler for StreamingHandler {
                 // Handle streaming delta events for real-time token output
                 if let StreamEvent::ContentBlockDelta { delta, index } = event {
                     if let ContentDelta::TextDelta { text } = delta {
-                        info!(text_len = text.len(), block_index = index, "Streaming text delta");
+                        info!(
+                            text_len = text.len(),
+                            block_index = index,
+                            "Streaming text delta"
+                        );
                         let chunk = OutputChunk {
                             content: text,
                             is_final: false,
@@ -244,7 +253,10 @@ impl ControlHandler for StreamingHandler {
                     .unwrap_or_else(|_| "failed to serialize".to_string());
                 // Check if this is a control_response (expected)
                 if value.get("type").and_then(|t| t.as_str()) == Some("control_response") {
-                    info!(len = full_json.len(), "Received control_response (expected)");
+                    info!(
+                        len = full_json.len(),
+                        "Received control_response (expected)"
+                    );
                 } else {
                     // Log full message for unexpected types
                     warn!(full_message = %full_json, "Received unexpected Unknown message type");
@@ -311,7 +323,12 @@ impl ClaudeCodeExecutor {
             .with_permission_mode(PermissionMode::BypassPermissions);
 
         // Create streaming handler with event support
-        let handler = Arc::new(StreamingHandler::new(output_tx.clone(), event_tx, run_id, task_id));
+        let handler = Arc::new(StreamingHandler::new(
+            output_tx.clone(),
+            event_tx,
+            run_id,
+            task_id,
+        ));
 
         // Execute via SDK
         let result = sdk_executor

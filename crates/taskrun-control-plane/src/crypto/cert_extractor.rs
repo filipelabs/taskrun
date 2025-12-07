@@ -61,7 +61,9 @@ fn extract_cn_from_subject(cert: &X509Certificate<'_>) -> Result<String, CertExt
                     .attr_value()
                     .as_str()
                     .map(|s| s.to_string())
-                    .map_err(|e| CertExtractError::ParseError(format!("Failed to parse CN: {:?}", e)));
+                    .map_err(|e| {
+                        CertExtractError::ParseError(format!("Failed to parse CN: {:?}", e))
+                    });
             }
         }
     }

@@ -21,7 +21,6 @@ use crate::state::AppState;
 mod handlers;
 pub mod responses;
 
-
 /// Create the HTTP router.
 pub fn create_router(state: Arc<AppState>) -> Router {
     // CORS layer for devtools access

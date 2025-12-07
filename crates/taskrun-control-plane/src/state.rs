@@ -158,10 +158,7 @@ impl AppState {
     /// Append output content to a run.
     pub async fn append_output(&self, run_id: &RunId, content: &str) {
         let mut outputs = self.outputs.write().await;
-        outputs
-            .entry(run_id.clone())
-            .or_default()
-            .push_str(content);
+        outputs.entry(run_id.clone()).or_default().push_str(content);
     }
 
     /// Get output for a run.
