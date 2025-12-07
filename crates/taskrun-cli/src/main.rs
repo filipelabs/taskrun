@@ -1,7 +1,7 @@
 //! TaskRun CLI - Command line interface for TaskRun control plane.
 
 use clap::{Parser, Subcommand};
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 use taskrun_proto::pb::{
     CancelTaskRequest, CreateTaskRequest, GetTaskRequest, ListTasksRequest, ListWorkersRequest,
@@ -13,9 +13,13 @@ use taskrun_proto::{TaskServiceClient, WorkerServiceClient};
 #[command(name = "taskrun")]
 #[command(about = "CLI for TaskRun control plane", long_about = None)]
 struct Cli {
-    /// Control plane address
-    #[arg(short, long, default_value = "http://[::1]:50051")]
+    /// Control plane address (use https:// for TLS)
+    #[arg(short, long, default_value = "https://[::1]:50051")]
     addr: String,
+
+    /// Path to CA certificate for TLS
+    #[arg(long, default_value = "certs/ca.crt")]
+    ca_cert: String,
 
     #[command(subcommand)]
     command: Commands,
@@ -62,7 +66,20 @@ enum Commands {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    // Load CA certificate for TLS
+    let ca_cert = std::fs::read(&cli.ca_cert).map_err(|e| {
+        format!(
+            "Failed to read CA certificate from '{}': {}. Run scripts/gen-dev-certs.sh first.",
+            cli.ca_cert, e
+        )
+    })?;
+
+    let tls_config = ClientTlsConfig::new()
+        .ca_certificate(Certificate::from_pem(ca_cert))
+        .domain_name("localhost");
+
     let channel = Channel::from_shared(cli.addr)?
+        .tls_config(tls_config)?
         .connect()
         .await?;
 

@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use tonic::transport::Channel;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 use tracing::{info, warn};
 
 use taskrun_core::{AgentSpec, ModelBackend, WorkerInfo};
@@ -41,9 +41,22 @@ impl WorkerConnection {
     /// Connect to control plane and run the main loop.
     /// Returns on disconnect (caller should handle reconnection).
     pub async fn connect_and_run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!(addr = %self.config.control_plane_addr, "Connecting to control plane");
+        info!(addr = %self.config.control_plane_addr, "Connecting to control plane with TLS");
+
+        // Load CA certificate for pinned trust
+        let ca_cert = std::fs::read(&self.config.tls_ca_cert_path).map_err(|e| {
+            format!(
+                "Failed to read CA certificate from '{}': {}. Run scripts/gen-dev-certs.sh first.",
+                self.config.tls_ca_cert_path, e
+            )
+        })?;
+
+        let tls_config = ClientTlsConfig::new()
+            .ca_certificate(Certificate::from_pem(ca_cert))
+            .domain_name("localhost");
 
         let channel = Channel::from_shared(self.config.control_plane_addr.clone())?
+            .tls_config(tls_config)?
             .connect()
             .await?;
 

@@ -6,7 +6,14 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}=== TaskRun Demo ===${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo -e "${BLUE}=== TaskRun Demo (with TLS) ===${NC}"
+echo ""
+
+# Generate certificates if needed
+echo -e "${GREEN}Checking certificates...${NC}"
+"$SCRIPT_DIR/gen-dev-certs.sh"
 echo ""
 
 # Build
