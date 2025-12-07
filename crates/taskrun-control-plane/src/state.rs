@@ -218,6 +218,16 @@ impl AppState {
         let mut channels = self.stream_channels.write().await;
         channels.remove(run_id);
     }
+
+    // ========================================================================
+    // Agent Validation
+    // ========================================================================
+
+    /// Check if any connected worker supports the given agent.
+    pub async fn has_agent(&self, agent_name: &str) -> bool {
+        let workers = self.workers.read().await;
+        workers.values().any(|w| w.info.supports_agent(agent_name))
+    }
 }
 
 impl Default for AppState {

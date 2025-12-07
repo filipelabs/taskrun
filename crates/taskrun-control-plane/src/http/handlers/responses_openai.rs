@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{rejection::JsonRejection, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
-        IntoResponse,
+        IntoResponse, Response,
     },
     Json,
 };
@@ -143,7 +143,7 @@ pub struct Usage {
 }
 
 /// Error details for failed responses.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ErrorObject {
     pub message: String,
 
@@ -151,12 +151,127 @@ pub struct ErrorObject {
     pub error_type: String,
 
     pub code: String,
+
+    /// Optional parameter name for validation errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
 }
 
 /// OpenAI-style error response wrapper.
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: ErrorObject,
+}
+
+// ============================================================================
+// API Error Type
+// ============================================================================
+
+/// API errors with proper HTTP status codes and OpenAI-style error responses.
+#[derive(Debug)]
+pub enum ApiError {
+    // Client errors (4xx)
+    /// Invalid JSON in request body.
+    InvalidJson { message: String },
+    /// Missing required field.
+    MissingField { field: &'static str },
+    /// Invalid field value.
+    InvalidField { field: &'static str, message: String },
+    /// Model/agent not found.
+    ModelNotFound { model: String },
+
+    // Server errors (5xx)
+    /// No workers available for the requested agent.
+    NoWorkersAvailable { agent: String },
+    /// Worker disconnected during execution.
+    WorkerDisconnected,
+    /// Agent execution failed.
+    ExecutionFailed { message: String },
+    /// Task execution timed out.
+    TaskTimeout,
+    /// Internal server error.
+    Internal { message: String },
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, error_type, code, message, param) = match self {
+            ApiError::InvalidJson { message } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                "invalid_json",
+                message,
+                None,
+            ),
+            ApiError::MissingField { field } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                "missing_field",
+                format!("Missing required field: {}", field),
+                Some(field.to_string()),
+            ),
+            ApiError::InvalidField { field, message } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                "invalid_field",
+                format!("Invalid field '{}': {}", field, message),
+                Some(field.to_string()),
+            ),
+            ApiError::ModelNotFound { model } => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                "model_not_found",
+                format!("Model '{}' not found", model),
+                Some("model".to_string()),
+            ),
+            ApiError::NoWorkersAvailable { agent } => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "server_error",
+                "no_workers_available",
+                format!("No workers available for agent '{}'", agent),
+                None,
+            ),
+            ApiError::WorkerDisconnected => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "worker_disconnected",
+                "Worker disconnected during execution".to_string(),
+                None,
+            ),
+            ApiError::ExecutionFailed { message } => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "agent_error",
+                "execution_failed",
+                message,
+                None,
+            ),
+            ApiError::TaskTimeout => (
+                StatusCode::GATEWAY_TIMEOUT,
+                "timeout_error",
+                "task_timeout",
+                "Task execution timed out".to_string(),
+                None,
+            ),
+            ApiError::Internal { message } => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "internal_error",
+                message,
+                None,
+            ),
+        };
+
+        let body = ErrorResponse {
+            error: ErrorObject {
+                message,
+                error_type: error_type.to_string(),
+                code: code.to_string(),
+                param,
+            },
+        };
+
+        (status, Json(body)).into_response()
+    }
 }
 
 // ============================================================================
@@ -214,19 +329,81 @@ struct ResponseFailedEvent {
 /// POST /v1/responses - Create a response (OpenAI-compatible).
 pub async fn create_response(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<CreateResponseRequest>,
-) -> impl IntoResponse {
+    json_result: Result<Json<CreateResponseRequest>, JsonRejection>,
+) -> Response {
+    // Handle JSON parsing errors
+    let req = match json_result {
+        Ok(Json(req)) => req,
+        Err(rejection) => {
+            warn!(error = %rejection, "Invalid JSON in request body");
+            return ApiError::InvalidJson {
+                message: rejection.body_text(),
+            }
+            .into_response();
+        }
+    };
+
     info!(
         model = %req.model,
         stream = req.stream,
         "Received OpenAI-compatible request"
     );
 
+    // Validate request
+    if let Err(e) = validate_request(&req) {
+        return e.into_response();
+    }
+
+    // Validate model/agent exists
+    let agent_name = resolve_agent_name(&req.model);
+    if !state.has_agent(&agent_name).await {
+        warn!(model = %req.model, agent = %agent_name, "Model not found");
+        return ApiError::ModelNotFound {
+            model: req.model.clone(),
+        }
+        .into_response();
+    }
+
     if req.stream {
         create_streaming_response(state, req).await.into_response()
     } else {
         create_non_streaming_response(state, req).await.into_response()
     }
+}
+
+/// Validate request fields before processing.
+fn validate_request(req: &CreateResponseRequest) -> Result<(), ApiError> {
+    // Model is required and non-empty
+    if req.model.trim().is_empty() {
+        return Err(ApiError::MissingField { field: "model" });
+    }
+
+    // Input is required and non-null
+    if req.input.is_null() {
+        return Err(ApiError::MissingField { field: "input" });
+    }
+
+    // max_output_tokens must be positive if present
+    if let Some(tokens) = req.max_output_tokens {
+        if tokens == 0 {
+            return Err(ApiError::InvalidField {
+                field: "max_output_tokens",
+                message: "must be greater than 0".to_string(),
+            });
+        }
+    }
+
+    // temperature must be 0.0-2.0 if present
+    if let Some(temp) = req.temperature {
+        if !(0.0..=2.0).contains(&temp) {
+            return Err(ApiError::InvalidField {
+                field: "temperature",
+                message: "must be between 0.0 and 2.0".to_string(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Create a streaming SSE response.
@@ -274,8 +451,9 @@ async fn create_streaming_response(
                     status: "failed".to_string(),
                     error: ErrorObject {
                         message: format!("Failed to schedule task: {}", e),
-                        error_type: "scheduling_error".to_string(),
-                        code: "no_worker_available".to_string(),
+                        error_type: "server_error".to_string(),
+                        code: "no_workers_available".to_string(),
+                        param: None,
                     },
                 };
                 Ok::<_, Infallible>(
@@ -420,6 +598,7 @@ fn stream_event_to_sse(event: StreamEvent, response_id: &str) -> Result<Event, I
                         message: error_message.unwrap_or_else(|| "Unknown error".to_string()),
                         error_type: "agent_error".to_string(),
                         code: "execution_failed".to_string(),
+                        param: None,
                     },
                 };
                 Ok(Event::default()
@@ -468,11 +647,14 @@ async fn create_non_streaming_response(
     let run_id = match scheduler.assign_task(&task_id).await {
         Ok(run_id) => {
             info!(task_id = %task_id, run_id = %run_id, "Task assigned to worker");
-            Some(run_id)
+            run_id
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to assign task");
-            None
+            return ApiError::NoWorkersAvailable {
+                agent: agent_name,
+            }
+            .into_response();
         }
     };
 
@@ -484,17 +666,7 @@ async fn create_non_streaming_response(
     loop {
         if start.elapsed() > timeout {
             warn!(task_id = %task_id, "Task timed out");
-            return (
-                StatusCode::GATEWAY_TIMEOUT,
-                Json(ErrorResponse {
-                    error: ErrorObject {
-                        message: "Task execution timed out".to_string(),
-                        error_type: "timeout_error".to_string(),
-                        code: "task_timeout".to_string(),
-                    },
-                }),
-            )
-                .into_response();
+            return ApiError::TaskTimeout.into_response();
         }
 
         // Check task status
@@ -502,23 +674,16 @@ async fn create_non_streaming_response(
         let task = match task_opt {
             Some(t) => t,
             None => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: ErrorObject {
-                            message: "Task disappeared".to_string(),
-                            error_type: "internal_error".to_string(),
-                            code: "task_not_found".to_string(),
-                        },
-                    }),
-                )
-                    .into_response();
+                return ApiError::Internal {
+                    message: "Task disappeared".to_string(),
+                }
+                .into_response();
             }
         };
 
         if task.is_terminal() {
             // Task completed, build response
-            let response = build_response(&state, &task, &req.model, run_id.as_ref()).await;
+            let response = build_response(&state, &task, &req.model, Some(&run_id)).await;
             return (StatusCode::OK, Json(response)).into_response();
         }
 
@@ -619,6 +784,7 @@ async fn build_response(
             message: error_msg,
             error_type: "agent_error".to_string(),
             code: "execution_failed".to_string(),
+            param: None,
         })
     } else {
         None
