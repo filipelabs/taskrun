@@ -1,6 +1,7 @@
 //! HTTP server for the control plane.
 //!
 //! Provides endpoints for:
+//! - OpenAI-compatible responses API (`/v1/responses`)
 //! - Worker enrollment (`/v1/enroll`)
 //! - Worker list API (`/v1/workers`)
 //! - Workers UI (`/ui/workers`)
@@ -30,6 +31,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        // OpenAI-compatible API
+        .route("/v1/responses", post(handlers::create_response))
         // API routes
         .route("/v1/enroll", post(handlers::enroll))
         .route("/v1/workers", get(handlers::list_workers_json))
