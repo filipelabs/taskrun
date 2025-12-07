@@ -46,7 +46,11 @@ fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(" TaskRun TUI ")
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
         )
         .select(selected)
         .style(Style::default().fg(Color::White))
@@ -73,10 +77,7 @@ fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
 
 /// Render the footer with status message.
 fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    let status = app
-        .status_message
-        .as_deref()
-        .unwrap_or("Ready");
+    let status = app.status_message.as_deref().unwrap_or("Ready");
 
     let help = " q: quit | Tab: next view | 1-4: switch view ";
 
