@@ -1,0 +1,25 @@
+[package]
+name = "taskrun-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CLI tool for TaskRun control plane"
+
+[[bin]]
+name = "taskrun"
+path = "src/main.rs"
+
+[dependencies]
+taskrun-proto = { path = "../taskrun-proto" }
+
+# Async
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Output
+serde_json = { workspace = true }
+chrono = { workspace = true }
