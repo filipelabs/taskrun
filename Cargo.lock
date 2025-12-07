@@ -1502,6 +1502,7 @@ dependencies = [
  "chrono",
  "taskrun-core",
  "taskrun-proto",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tonic",

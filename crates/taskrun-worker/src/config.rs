@@ -27,6 +27,9 @@ pub struct Config {
 
     /// Path to worker client private key for mTLS (PEM format).
     pub tls_key_path: String,
+
+    /// Path to Claude Code CLI binary.
+    pub claude_path: String,
 }
 
 impl Default for Config {
@@ -40,6 +43,7 @@ impl Default for Config {
             tls_ca_cert_path: "certs/ca.crt".to_string(),
             tls_cert_path: "certs/worker.crt".to_string(),
             tls_key_path: "certs/worker.key".to_string(),
+            claude_path: "claude".to_string(),
         }
     }
 }

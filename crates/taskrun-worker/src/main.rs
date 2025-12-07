@@ -8,6 +8,7 @@ use tracing_subscriber::FmtSubscriber;
 
 mod config;
 mod connection;
+mod executor;
 
 use config::Config;
 use connection::WorkerConnection;

@@ -27,3 +27,4 @@ tracing-subscriber.workspace = true
 
 # Utilities
 chrono.workspace = true
+thiserror.workspace = true

@@ -9,32 +9,36 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use taskrun_core::{AgentSpec, ModelBackend, WorkerInfo};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunOutputChunk, RunStatusUpdate, WorkerHeartbeat, WorkerHello,
+    RunAssignment, RunClientMessage, RunOutputChunk, RunStatusUpdate, WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::RunServiceClient;
 
 use crate::config::Config;
+use crate::executor::ClaudeCodeExecutor;
 
 /// Manages connection to the control plane.
 pub struct WorkerConnection {
     config: Arc<Config>,
     outbound_tx: Option<mpsc::Sender<RunClientMessage>>,
     active_run_count: Arc<AtomicU32>,
+    executor: Arc<ClaudeCodeExecutor>,
 }
 
 impl WorkerConnection {
     /// Create a new WorkerConnection.
     pub fn new(config: Arc<Config>) -> Self {
+        let executor = Arc::new(ClaudeCodeExecutor::new(config.claude_path.clone()));
         Self {
             config,
             outbound_tx: None,
             active_run_count: Arc::new(AtomicU32::new(0)),
+            executor,
         }
     }
 
@@ -167,14 +171,14 @@ impl WorkerConnection {
                         "Received run assignment"
                     );
 
-                    // Spawn fake execution
+                    // Spawn real execution via Claude Code
                     if let Some(tx) = &self.outbound_tx {
                         let tx = tx.clone();
-                        let run_id = assignment.run_id.clone();
                         let active_count = self.active_run_count.clone();
+                        let executor = self.executor.clone();
 
                         tokio::spawn(async move {
-                            execute_fake_run(tx, run_id, active_count).await;
+                            execute_real_run(executor, tx, assignment, active_count).await;
                         });
                     }
                 }
@@ -194,49 +198,99 @@ impl WorkerConnection {
     }
 }
 
-/// Execute a fake run - simulates agent execution with delays.
-async fn execute_fake_run(
+/// Execute a real run via Claude Code subprocess.
+async fn execute_real_run(
+    executor: Arc<ClaudeCodeExecutor>,
     tx: mpsc::Sender<RunClientMessage>,
-    run_id: String,
+    assignment: RunAssignment,
     active_count: Arc<AtomicU32>,
 ) {
+    let run_id = assignment.run_id.clone();
+
     // Increment active run count
     active_count.fetch_add(1, Ordering::SeqCst);
 
-    info!(run_id = %run_id, "Starting fake execution");
+    info!(run_id = %run_id, agent = %assignment.agent_name, "Starting real execution via Claude Code");
 
-    // Send RUNNING status (no backend yet)
+    // Send RUNNING status
     send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
 
-    // Simulate work with fake output chunks
-    for i in 0..3 {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let content = format!("Processing step {}... This is simulated output from the agent.", i + 1);
-        send_output_chunk(&tx, &run_id, i, content, false).await;
+    // Create channel for streaming output from executor
+    let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
+
+    // Spawn executor in background
+    let executor_clone = executor.clone();
+    let agent_name = assignment.agent_name.clone();
+    let input_json = assignment.input_json.clone();
+    let executor_handle = tokio::spawn(async move {
+        executor_clone.execute(&agent_name, &input_json, chunk_tx).await
+    });
+
+    // Stream chunks as they arrive
+    let mut seq = 0u64;
+    while let Some(chunk) = chunk_rx.recv().await {
+        if !chunk.is_final && !chunk.content.is_empty() {
+            send_output_chunk(&tx, &run_id, seq, chunk.content, false).await;
+            seq += 1;
+        }
     }
 
-    // Send final chunk
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    send_output_chunk(&tx, &run_id, 3, "Execution completed successfully.".to_string(), true).await;
+    // Wait for executor to complete and get result
+    let result = executor_handle.await;
 
-    // Build the backend info that was used
-    let backend_used = taskrun_proto::pb::ModelBackend {
-        provider: "anthropic".to_string(),
-        model_name: "claude-opus-4-5".to_string(),
-        context_window: 200_000,
-        supports_streaming: true,
-        modalities: vec!["text".to_string()],
-        tools: vec![],
-        metadata: std::collections::HashMap::new(),
-    };
+    match result {
+        Ok(Ok(exec_result)) => {
+            // Send final chunk
+            send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
 
-    // Send COMPLETED status with backend_used
-    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Completed, Some(backend_used)).await;
+            // Build the backend info that was used
+            let backend_used = taskrun_proto::pb::ModelBackend {
+                provider: exec_result.provider,
+                model_name: exec_result.model_used,
+                context_window: 200_000,
+                supports_streaming: true,
+                modalities: vec!["text".to_string()],
+                tools: vec![],
+                metadata: HashMap::new(),
+            };
+
+            // Send COMPLETED status with backend_used
+            send_status_update(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Completed,
+                Some(backend_used),
+            )
+            .await;
+
+            info!(run_id = %run_id, "Real execution completed successfully");
+        }
+        Ok(Err(e)) => {
+            // Executor returned an error
+            error!(run_id = %run_id, error = %e, "Execution failed");
+            send_status_update_with_error(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Failed,
+                e.to_string(),
+            )
+            .await;
+        }
+        Err(e) => {
+            // Task panicked or was cancelled
+            error!(run_id = %run_id, error = %e, "Executor task failed");
+            send_status_update_with_error(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Failed,
+                format!("Executor task failed: {}", e),
+            )
+            .await;
+        }
+    }
 
     // Decrement active run count
     active_count.fetch_sub(1, Ordering::SeqCst);
-
-    info!(run_id = %run_id, "Fake execution completed");
 }
 
 /// Send a status update to the control plane.
@@ -260,6 +314,30 @@ async fn send_status_update(
 
     if tx.send(msg).await.is_err() {
         warn!(run_id = %run_id, "Failed to send status update");
+    }
+}
+
+/// Send a status update with an error message to the control plane.
+async fn send_status_update_with_error(
+    tx: &mpsc::Sender<RunClientMessage>,
+    run_id: &str,
+    status: taskrun_proto::pb::RunStatus,
+    error_message: String,
+) {
+    let update = RunStatusUpdate {
+        run_id: run_id.to_string(),
+        status: status as i32,
+        error_message,
+        backend_used: None,
+        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+    };
+
+    let msg = RunClientMessage {
+        payload: Some(ClientPayload::StatusUpdate(update)),
+    };
+
+    if tx.send(msg).await.is_err() {
+        warn!(run_id = %run_id, "Failed to send status update with error");
     }
 }
 
