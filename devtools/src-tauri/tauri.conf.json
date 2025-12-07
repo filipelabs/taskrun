@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TaskRun DevTools",
+  "version": "0.1.0",
+  "identifier": "com.taskrun.devtools",
+  "build": {
+    "beforeDevCommand": "trunk serve --port 1420",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "trunk build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "TaskRun DevTools",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "icon": []
+  }
+}
