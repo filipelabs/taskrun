@@ -36,7 +36,7 @@ fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState
     let titles = vec!["[1] Workers", "[2] Tasks", "[3] Runs", "[4] Trace"];
 
     let selected = match state.current_view {
-        View::Workers => 0,
+        View::Workers | View::WorkerDetail => 0,
         View::Tasks => 1,
         View::Runs => 2,
         View::Trace => 3,
@@ -68,6 +68,7 @@ fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState
 fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) {
     let content = match state.current_view {
         View::Workers => render_workers_view(state),
+        View::WorkerDetail => render_worker_detail(state),
         View::Tasks => render_tasks_view(state),
         View::Runs => render_runs_placeholder(),
         View::Trace => render_trace_placeholder(),
@@ -140,6 +141,11 @@ fn render_workers_view(state: &UiState) -> Paragraph<'static> {
 
     if state.workers.is_empty() {
         lines.push(Line::from("  No workers connected."));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Waiting for workers to connect...",
+            Style::default().fg(Color::DarkGray),
+        )));
     } else {
         lines.push(Line::from(Span::styled(
             format!("  {} worker(s) connected:", state.workers.len()),
@@ -147,7 +153,18 @@ fn render_workers_view(state: &UiState) -> Paragraph<'static> {
         )));
         lines.push(Line::from(""));
 
-        for worker in &state.workers {
+        // Header row
+        lines.push(Line::from(Span::styled(
+            "     ID                Status    Agents",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ─────────────────────────────────────────────────",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        for (i, worker) in state.workers.iter().enumerate() {
+            let is_selected = i == state.selected_worker_index;
             let status = match worker.status {
                 0 => "UNKNOWN",
                 1 => "IDLE",
@@ -155,14 +172,191 @@ fn render_workers_view(state: &UiState) -> Paragraph<'static> {
                 3 => "OFFLINE",
                 _ => "?",
             };
-            lines.push(Line::from(format!("  - {} [{}]", worker.worker_id, status)));
+
+            let status_color = match worker.status {
+                1 => Color::Green,  // IDLE
+                2 => Color::Yellow, // BUSY
+                3 => Color::Red,    // OFFLINE
+                _ => Color::Gray,
+            };
+
+            // Get agent names from worker
+            let agents: Vec<String> = worker
+                .agents
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+            let agents_str = if agents.is_empty() {
+                "-".to_string()
+            } else {
+                agents.join(", ")
+            };
+
+            // Truncate worker_id if needed
+            let worker_id_display = if worker.worker_id.len() > 12 {
+                format!("{}...", &worker.worker_id[..12])
+            } else {
+                worker.worker_id.clone()
+            };
+
+            let prefix = if is_selected { "  > " } else { "    " };
+            let line_style = if is_selected {
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            let line = Line::from(vec![
+                Span::styled(prefix, line_style),
+                Span::styled(format!("{:<15}", worker_id_display), line_style),
+                Span::styled(format!("{:<10}", status), Style::default().fg(status_color)),
+                Span::styled(agents_str, line_style),
+            ]);
+            lines.push(line);
         }
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑↓/jk: navigate | Enter: details | r: refresh",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
             .title(" Workers ")
+            .border_style(Style::default().fg(Color::Cyan)),
+    )
+}
+
+fn render_worker_detail(state: &UiState) -> Paragraph<'static> {
+    let mut lines = vec![Line::from("")];
+
+    if let Some(worker) = state.selected_worker() {
+        let status = match worker.status {
+            0 => "UNKNOWN",
+            1 => "IDLE",
+            2 => "BUSY",
+            3 => "OFFLINE",
+            _ => "?",
+        };
+
+        let status_color = match worker.status {
+            1 => Color::Green,
+            2 => Color::Yellow,
+            3 => Color::Red,
+            _ => Color::Gray,
+        };
+
+        // Worker header
+        lines.push(Line::from(vec![
+            Span::styled("  Worker: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                worker.worker_id.clone(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Status: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(status, Style::default().fg(status_color)),
+        ]));
+        lines.push(Line::from(""));
+
+        // Agent information
+        if worker.agents.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  No agents configured",
+                Style::default().fg(Color::Yellow),
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  Agents:",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+
+            for agent in &worker.agents {
+                lines.push(Line::from(vec![
+                    Span::styled("    ", Style::default()),
+                    Span::styled(
+                        format!("{}", agent.name),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+
+                if !agent.description.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        format!("      {}", agent.description),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+
+                // Show model backends
+                for backend in &agent.backends {
+                    lines.push(Line::from(vec![
+                        Span::styled("      └─ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("{}/{}", backend.provider, backend.model_name),
+                            Style::default().fg(Color::Green),
+                        ),
+                        Span::styled(
+                            format!(" ({}k ctx)", backend.context_window / 1000),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                }
+                lines.push(Line::from(""));
+            }
+        }
+
+        // Labels
+        if !worker.labels.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  Labels:",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for (key, value) in &worker.labels {
+                lines.push(Line::from(Span::styled(
+                    format!("    {}={}", key, value),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            "  No worker selected",
+            Style::default().fg(Color::Yellow),
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Esc: back | ↑↓/jk: navigate workers | r: refresh",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let title = if let Some(worker) = state.selected_worker() {
+        format!(" Worker: {} ", worker.worker_id)
+    } else {
+        " Worker Detail ".to_string()
+    };
+
+    Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title)
             .border_style(Style::default().fg(Color::Cyan)),
     )
 }

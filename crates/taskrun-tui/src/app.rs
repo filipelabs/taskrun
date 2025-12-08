@@ -141,12 +141,24 @@ impl App {
     /// Returns true if the app should quit.
     fn handle_key(&mut self, code: KeyCode) -> bool {
         match code {
-            // Quit
-            KeyCode::Char('q') | KeyCode::Esc => {
+            // Quit (only q at top level, Esc goes back from detail views)
+            KeyCode::Char('q') => {
                 return true;
             }
 
-            // View switching
+            // Escape - go back from detail views or quit from main views
+            KeyCode::Esc => {
+                match self.state.current_view {
+                    View::WorkerDetail => {
+                        self.state.current_view = View::Workers;
+                    }
+                    _ => {
+                        return true;
+                    }
+                }
+            }
+
+            // View switching with number keys
             KeyCode::Char('1') => {
                 self.state.current_view = View::Workers;
             }
@@ -160,10 +172,10 @@ impl App {
                 self.state.current_view = View::Trace;
             }
 
-            // Tab navigation
+            // Tab navigation (skip WorkerDetail in tab cycle)
             KeyCode::Tab => {
                 self.state.current_view = match self.state.current_view {
-                    View::Workers => View::Tasks,
+                    View::Workers | View::WorkerDetail => View::Tasks,
                     View::Tasks => View::Runs,
                     View::Runs => View::Trace,
                     View::Trace => View::Workers,
@@ -171,11 +183,47 @@ impl App {
             }
             KeyCode::BackTab => {
                 self.state.current_view = match self.state.current_view {
-                    View::Workers => View::Trace,
+                    View::Workers | View::WorkerDetail => View::Trace,
                     View::Tasks => View::Workers,
                     View::Runs => View::Tasks,
                     View::Trace => View::Runs,
                 };
+            }
+
+            // Up/Down or j/k navigation
+            KeyCode::Up | KeyCode::Char('k') => {
+                match self.state.current_view {
+                    View::Workers | View::WorkerDetail => {
+                        self.state.select_prev_worker();
+                    }
+                    View::Tasks => {
+                        self.state.select_prev_task();
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                match self.state.current_view {
+                    View::Workers | View::WorkerDetail => {
+                        self.state.select_next_worker();
+                    }
+                    View::Tasks => {
+                        self.state.select_next_task();
+                    }
+                    _ => {}
+                }
+            }
+
+            // Enter - view details
+            KeyCode::Enter => {
+                match self.state.current_view {
+                    View::Workers => {
+                        if self.state.selected_worker().is_some() {
+                            self.state.current_view = View::WorkerDetail;
+                        }
+                    }
+                    _ => {}
+                }
             }
 
             // Refresh / Reconnect
@@ -202,9 +250,3 @@ impl App {
     }
 }
 
-impl UiState {
-    /// Check if the app should quit (used for Ctrl+C handling).
-    fn should_quit(&self) -> bool {
-        false // Could be set by signal handler
-    }
-}

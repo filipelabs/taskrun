@@ -58,11 +58,16 @@ enum Commands {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Initialize tracing (logs to file to avoid terminal interference)
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter("taskrun_tui=debug")
-        .init();
+    // Initialize tracing - write to file to avoid terminal interference
+    // Logs go to /tmp/taskrun-tui.log
+    let log_file = std::fs::File::create("/tmp/taskrun-tui.log").ok();
+    if let Some(file) = log_file {
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_env_filter("taskrun_tui=debug")
+            .with_ansi(false)
+            .init();
+    }
 
     let cli = Cli::parse();
 
