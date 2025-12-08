@@ -33,7 +33,7 @@ enum Commands {
     #[command(alias = "cp")]
     ControlPlane {
         /// Control plane gRPC endpoint
-        #[arg(short, long, default_value = "http://[::1]:50051")]
+        #[arg(short, long, default_value = "https://[::1]:50051")]
         endpoint: String,
 
         /// Control plane HTTP endpoint (for REST API)
@@ -43,6 +43,14 @@ enum Commands {
         /// CA certificate for TLS (PEM file path)
         #[arg(long)]
         ca_cert: Option<String>,
+
+        /// Client certificate for mTLS (PEM file path)
+        #[arg(long)]
+        client_cert: Option<String>,
+
+        /// Client key for mTLS (PEM file path)
+        #[arg(long)]
+        client_key: Option<String>,
 
         /// Refresh interval in seconds
         #[arg(short, long, default_value = "2")]
@@ -76,9 +84,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             endpoint,
             http_endpoint: _,
             ca_cert,
+            client_cert,
+            client_key,
             refresh,
         } => {
-            run_control_plane_tui(&endpoint, ca_cert.as_deref(), refresh)?;
+            run_control_plane_tui(
+                &endpoint,
+                ca_cert.as_deref(),
+                client_cert.as_deref(),
+                client_key.as_deref(),
+                refresh,
+            )?;
         }
         Commands::Worker { endpoint: _ } => {
             // Worker TUI not yet implemented
@@ -92,6 +108,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn run_control_plane_tui(
     grpc_endpoint: &str,
     ca_cert: Option<&str>,
+    client_cert: Option<&str>,
+    client_key: Option<&str>,
     refresh: u64,
 ) -> Result<(), Box<dyn Error>> {
     info!(endpoint = %grpc_endpoint, refresh = refresh, "Starting control plane TUI");
@@ -101,6 +119,16 @@ fn run_control_plane_tui(
         Some(std::fs::read(path)?)
     } else {
         None
+    };
+
+    // Read client cert/key for mTLS if provided
+    let client_identity = match (client_cert, client_key) {
+        (Some(cert_path), Some(key_path)) => {
+            let cert = std::fs::read(cert_path)?;
+            let key = std::fs::read(key_path)?;
+            Some((cert, key))
+        }
+        _ => None,
     };
 
     // Create channels for UI <-> backend communication
@@ -115,6 +143,7 @@ fn run_control_plane_tui(
         rt.block_on(backend::run_backend(
             endpoint,
             ca_cert_bytes,
+            client_identity,
             refresh_duration,
             ui_tx,
             cmd_rx,

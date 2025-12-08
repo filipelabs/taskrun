@@ -38,6 +38,7 @@ fn next_backoff(current: Duration) -> Duration {
 pub async fn run_backend(
     endpoint: String,
     ca_cert: Option<Vec<u8>>,
+    client_identity: Option<(Vec<u8>, Vec<u8>)>,
     refresh_interval: Duration,
     ui_tx: mpsc::Sender<UiEvent>,
     mut cmd_rx: mpsc::Receiver<BackendCommand>,
@@ -54,7 +55,7 @@ pub async fn run_backend(
         info!(endpoint = %endpoint, "Attempting to connect to control plane");
 
         // Try to connect
-        let client = match AdminClient::connect(&endpoint, ca_cert.as_deref()).await {
+        let client = match AdminClient::connect(&endpoint, ca_cert.as_deref(), client_identity.as_ref()).await {
             Ok(c) => {
                 info!("Connected to control plane");
                 // Reset backoff on successful connection
