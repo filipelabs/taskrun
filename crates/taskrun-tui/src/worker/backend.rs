@@ -76,7 +76,11 @@ pub async fn run_worker_backend(
 
         // Try to connect and run (pass cmd_rx for handling ContinueRun commands)
         match connection.connect_and_run(&mut cmd_rx).await {
-            Ok(()) => {
+            Ok(quit_requested) => {
+                if quit_requested {
+                    info!("Quit requested, shutting down backend");
+                    return;
+                }
                 // Connection closed gracefully (server disconnected)
                 info!("Connection closed by server");
                 log_to_ui(&ui_tx, LogLevel::Warn, "Connection closed by server".to_string()).await;

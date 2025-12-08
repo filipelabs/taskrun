@@ -59,7 +59,7 @@ fn run_app_with_setup(
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Esc => {
+                        KeyCode::Esc | KeyCode::Char('q') => {
                             // User cancelled
                             return Ok(());
                         }
@@ -146,17 +146,24 @@ impl WorkerApp {
             // Poll terminal events (non-blocking with short timeout)
             if event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press && self.handle_key(key.code) {
-                        break; // quit requested
+                    if key.kind == KeyEventKind::Press {
+                        if self.handle_key(key.code) {
+                            break; // quit requested
+                        }
                     }
                 }
             }
 
             // Process backend events (non-blocking)
+            let mut should_quit = false;
             while let Ok(event) = self.ui_rx.try_recv() {
                 if self.apply_event(event) {
-                    break; // quit requested
+                    should_quit = true;
+                    break;
                 }
+            }
+            if should_quit {
+                break; // quit requested from backend event
             }
         }
 
@@ -288,21 +295,20 @@ impl WorkerApp {
     ///
     /// Returns true if the app should quit.
     fn handle_key(&mut self, code: KeyCode) -> bool {
+        // Handle quit confirmation dialog
+        if self.state.show_quit_confirm {
+            return self.handle_quit_confirm_key(code);
+        }
+
         // Handle detail view specially
         if self.state.current_view == WorkerView::RunDetail {
             return self.handle_detail_key(code);
         }
 
         match code {
-            // Quit
-            KeyCode::Char('q') => {
-                return true;
-            }
-            KeyCode::Esc => {
-                // In Runs view, do nothing. Otherwise quit.
-                if self.state.current_view != WorkerView::Runs {
-                    return true;
-                }
+            // Show quit confirmation
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.state.show_quit_confirm = true;
             }
 
             // View switching with number keys
@@ -375,6 +381,22 @@ impl WorkerApp {
                 }
             }
 
+            _ => {}
+        }
+        false
+    }
+
+    /// Handle key press in quit confirmation dialog.
+    fn handle_quit_confirm_key(&mut self, code: KeyCode) -> bool {
+        match code {
+            // Confirm quit
+            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                return true;
+            }
+            // Cancel quit
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.state.show_quit_confirm = false;
+            }
             _ => {}
         }
         false

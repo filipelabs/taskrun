@@ -310,6 +310,8 @@ pub struct WorkerUiState {
     pub chat_input: String,
     pub chat_input_cursor: usize,
     pub input_focused: bool,
+    // Quit confirmation dialog
+    pub show_quit_confirm: bool,
 }
 
 impl WorkerUiState {
@@ -334,6 +336,7 @@ impl WorkerUiState {
             chat_input: String::new(),
             chat_input_cursor: 0,
             input_focused: true,
+            show_quit_confirm: false,
         }
     }
 

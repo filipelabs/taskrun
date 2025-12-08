@@ -112,12 +112,12 @@ impl WorkerConnection {
     }
 
     /// Connect to control plane and run the main loop.
-    /// Returns on disconnect (caller should handle reconnection).
+    /// Returns `Ok(true)` if quit was requested, `Ok(false)` on normal disconnect.
     /// Accepts cmd_rx to receive commands from the UI (e.g., ContinueRun).
     pub async fn connect_and_run(
         &mut self,
         cmd_rx: &mut mpsc::Receiver<WorkerCommand>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.log(LogLevel::Info, format!("Connecting to control plane at {}", self.config.control_plane_addr));
 
         // Load CA certificate for pinned trust
@@ -187,6 +187,7 @@ impl WorkerConnection {
         });
 
         // Process incoming messages and UI commands
+        let mut quit_requested = false;
         loop {
             tokio::select! {
                 // Handle server messages
@@ -210,6 +211,7 @@ impl WorkerConnection {
                     match cmd {
                         WorkerCommand::Quit => {
                             info!("Received quit command");
+                            quit_requested = true;
                             break;
                         }
                         WorkerCommand::ForceReconnect => {
@@ -229,7 +231,7 @@ impl WorkerConnection {
         self.outbound_tx = None;
 
         self.log(LogLevel::Info, "Disconnected from control plane".to_string());
-        Ok(())
+        Ok(quit_requested)
     }
 
     async fn send_hello(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -22,6 +22,11 @@ pub fn render(frame: &mut Frame, state: &WorkerUiState) {
     render_header(frame, chunks[0], state);
     render_main_content(frame, chunks[1], state);
     render_footer(frame, chunks[2], state);
+
+    // Render quit confirmation dialog on top if shown
+    if state.show_quit_confirm {
+        render_quit_confirm(frame);
+    }
 }
 
 /// Render the header with tabs.
@@ -750,4 +755,44 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
     .block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(footer, area);
+}
+
+/// Render quit confirmation dialog.
+fn render_quit_confirm(frame: &mut Frame) {
+    use ratatui::widgets::Clear;
+
+    let area = frame.area();
+
+    // Center the popup
+    let popup_width = 40;
+    let popup_height = 5;
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Render the popup
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Quit worker?",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "  [Y]es  [N]o",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let popup = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .title(" Confirm "),
+    );
+
+    frame.render_widget(popup, popup_area);
 }
