@@ -27,6 +27,11 @@ pub fn render(frame: &mut Frame, state: &WorkerUiState) {
     if state.show_quit_confirm {
         render_quit_confirm(frame);
     }
+
+    // Render new run dialog on top if shown
+    if state.show_new_run_dialog {
+        render_new_run_dialog(frame, state);
+    }
 }
 
 /// Render the header with tabs.
@@ -359,10 +364,10 @@ fn render_chat_header(frame: &mut Frame, area: Rect, run: &super::state::RunInfo
     frame.render_widget(header, area);
 }
 
-/// Wrap text to fit within a given width.
+/// Wrap text to fit within a given width (unicode-safe).
 fn wrap_text(text: &str, width: usize, indent: &str) -> Vec<String> {
     let mut lines = Vec::new();
-    let effective_width = width.saturating_sub(indent.len());
+    let effective_width = width.saturating_sub(indent.chars().count());
 
     if effective_width == 0 {
         return vec![format!("{}{}", indent, text)];
@@ -374,21 +379,33 @@ fn wrap_text(text: &str, width: usize, indent: &str) -> Vec<String> {
             continue;
         }
 
-        let mut remaining = line;
-        while !remaining.is_empty() {
-            if remaining.len() <= effective_width {
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = 0;
+
+        while start < chars.len() {
+            let remaining_chars = chars.len() - start;
+
+            if remaining_chars <= effective_width {
+                let remaining: String = chars[start..].iter().collect();
                 lines.push(format!("{}{}", indent, remaining));
                 break;
             }
 
-            // Find a good break point (prefer space)
-            let break_at = remaining[..effective_width]
-                .rfind(' ')
-                .unwrap_or(effective_width);
+            // Find a good break point (prefer space within effective_width)
+            let end = start + effective_width;
+            let search_range: String = chars[start..end].iter().collect();
 
-            let (chunk, rest) = remaining.split_at(break_at);
+            let break_offset = search_range.rfind(' ').unwrap_or(effective_width);
+            let actual_end = start + break_offset;
+
+            let chunk: String = chars[start..actual_end].iter().collect();
             lines.push(format!("{}{}", indent, chunk.trim_end()));
-            remaining = rest.trim_start();
+
+            // Skip past the space
+            start = actual_end;
+            while start < chars.len() && chars[start] == ' ' {
+                start += 1;
+            }
         }
     }
 
@@ -514,10 +531,12 @@ fn render_chat_input(
         )
     };
 
-    // Add cursor
+    // Add cursor (unicode-safe: convert char index to byte index)
     let display_text = if state.input_focused && run.queued_input.is_none() {
-        let cursor_pos = state.chat_input_cursor.min(state.chat_input.len());
-        let (before, after) = state.chat_input.split_at(cursor_pos);
+        let chars: Vec<char> = state.chat_input.chars().collect();
+        let cursor_pos = state.chat_input_cursor.min(chars.len());
+        let before: String = chars[..cursor_pos].iter().collect();
+        let after: String = chars[cursor_pos..].iter().collect();
         format!("{}│{}", before, after)
     } else {
         content.clone()
@@ -741,7 +760,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
 
     let help = match state.current_view {
         WorkerView::Status => "[1-4] Views  [Tab] Next  [q] Quit",
-        WorkerView::Runs => "[Enter] Join  [j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit",
+        WorkerView::Runs => "[n] New  [Enter] Join  [j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit",
         WorkerView::RunDetail => "[Esc] Back  [Tab] Switch pane  [j/k] Scroll  [g/G] Top/Bottom",
         WorkerView::Logs => "[j/k] Scroll  [1-4] Views  [Tab] Next  [q] Quit",
         WorkerView::Config => "[1-4] Views  [Tab] Next  [q] Quit",
@@ -792,6 +811,62 @@ fn render_quit_confirm(frame: &mut Frame) {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .title(" Confirm "),
+    );
+
+    frame.render_widget(popup, popup_area);
+}
+
+/// Render new run dialog.
+fn render_new_run_dialog(frame: &mut Frame, state: &WorkerUiState) {
+    use ratatui::widgets::Clear;
+
+    let area = frame.area();
+
+    // Center the popup (wider for input)
+    let popup_width = 60.min(area.width.saturating_sub(4));
+    let popup_height = 7;
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    // Build input line with cursor (unicode-safe)
+    let input = &state.new_run_prompt;
+    let cursor_pos = state.new_run_cursor;
+    let chars: Vec<char> = input.chars().collect();
+    let input_display = if cursor_pos < chars.len() {
+        let before: String = chars[..cursor_pos].iter().collect();
+        let after: String = chars[cursor_pos..].iter().collect();
+        format!("  {}█{}", before, after)
+    } else {
+        format!("  {}█", input)
+    };
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Enter prompt for new task:",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            input_display,
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "  [Enter] Submit  [Esc] Cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let popup = Paragraph::new(text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" New Task "),
     );
 
     frame.render_widget(popup, popup_area);

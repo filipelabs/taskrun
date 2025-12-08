@@ -312,6 +312,10 @@ pub struct WorkerUiState {
     pub input_focused: bool,
     // Quit confirmation dialog
     pub show_quit_confirm: bool,
+    // New run dialog
+    pub show_new_run_dialog: bool,
+    pub new_run_prompt: String,
+    pub new_run_cursor: usize,
 }
 
 impl WorkerUiState {
@@ -337,6 +341,9 @@ impl WorkerUiState {
             chat_input_cursor: 0,
             input_focused: true,
             show_quit_confirm: false,
+            show_new_run_dialog: false,
+            new_run_prompt: String::new(),
+            new_run_cursor: 0,
         }
     }
 

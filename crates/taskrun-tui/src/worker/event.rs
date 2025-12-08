@@ -73,6 +73,10 @@ pub enum WorkerCommand {
         session_id: String,
         message: String,
     },
+    /// Create a new task.
+    CreateTask {
+        prompt: String,
+    },
     /// Quit the worker.
     Quit,
 }

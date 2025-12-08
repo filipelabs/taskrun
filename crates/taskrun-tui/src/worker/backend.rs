@@ -106,6 +106,10 @@ pub async fn run_worker_backend(
                 WorkerCommand::ContinueRun { .. } => {
                     // Ignore - can't continue while not connected
                 }
+                WorkerCommand::CreateTask { .. } => {
+                    // Ignore - can't create task while not connected
+                    log_to_ui(&ui_tx, LogLevel::Warn, "Cannot create task: not connected".to_string()).await;
+                }
             }
         }
 
@@ -162,6 +166,10 @@ async fn wait_with_commands(
                     WorkerCommand::ContinueRun { .. } => {
                         // Can't continue runs while disconnected, ignore
                         info!("Ignoring ContinueRun command while disconnected");
+                    }
+                    WorkerCommand::CreateTask { .. } => {
+                        // Can't create tasks while disconnected, ignore
+                        info!("Ignoring CreateTask command while disconnected");
                     }
                 }
             }

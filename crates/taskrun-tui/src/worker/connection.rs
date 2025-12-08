@@ -17,10 +17,10 @@ use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerId, W
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    RunAssignment, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunStatusUpdate,
-    WorkerHeartbeat, WorkerHello,
+    CreateTaskRequest, RunAssignment, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk,
+    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
 };
-use taskrun_proto::RunServiceClient;
+use taskrun_proto::{RunServiceClient, TaskServiceClient};
 
 use super::event::{WorkerCommand, WorkerUiEvent};
 use super::executor::ClaudeCodeExecutor;
@@ -221,6 +221,9 @@ impl WorkerConnection {
                         WorkerCommand::ContinueRun { run_id, session_id, message } => {
                             self.handle_continue_run(run_id, session_id, message, tx.clone()).await;
                         }
+                        WorkerCommand::CreateTask { prompt } => {
+                            self.handle_create_task(prompt).await;
+                        }
                     }
                 }
             }
@@ -358,6 +361,64 @@ impl WorkerConnection {
                     .await;
             }
         }
+    }
+
+    /// Handle a CreateTask command - create a new task via the TaskService API.
+    async fn handle_create_task(&self, prompt: String) {
+        self.log(LogLevel::Info, format!("Creating new task with prompt: {}", &prompt[..50.min(prompt.len())]));
+
+        // Build JSON input
+        let input_json = serde_json::json!({
+            "prompt": prompt
+        }).to_string();
+
+        // Create the request
+        let request = CreateTaskRequest {
+            agent_name: self.config.agent_name.clone(),
+            input_json,
+            labels: std::collections::HashMap::new(),
+            created_by: "worker-tui".to_string(),
+        };
+
+        // Connect to TaskService (reuse TLS config)
+        match self.create_task_client().await {
+            Ok(mut client) => {
+                match client.create_task(request).await {
+                    Ok(response) => {
+                        let task = response.into_inner();
+                        self.log(
+                            LogLevel::Info,
+                            format!("Task created: id={}, agent={}", task.id, task.agent_name),
+                        );
+                    }
+                    Err(e) => {
+                        self.log(LogLevel::Error, format!("Failed to create task: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.log(LogLevel::Error, format!("Failed to connect to TaskService: {}", e));
+            }
+        }
+    }
+
+    /// Create a TaskService client with the same TLS config.
+    async fn create_task_client(&self) -> Result<TaskServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
+        let ca_cert = std::fs::read(&self.config.tls_ca_cert_path)?;
+        let client_cert = std::fs::read(&self.config.tls_cert_path)?;
+        let client_key = std::fs::read(&self.config.tls_key_path)?;
+
+        let tls_config = ClientTlsConfig::new()
+            .ca_certificate(Certificate::from_pem(ca_cert))
+            .identity(Identity::from_pem(client_cert, client_key))
+            .domain_name("localhost");
+
+        let channel = Channel::from_shared(self.config.control_plane_addr.clone())?
+            .tls_config(tls_config)?
+            .connect()
+            .await?;
+
+        Ok(TaskServiceClient::new(channel))
     }
 
     fn build_worker_info(&self) -> WorkerInfo {

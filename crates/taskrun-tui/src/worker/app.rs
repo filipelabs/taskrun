@@ -300,6 +300,11 @@ impl WorkerApp {
             return self.handle_quit_confirm_key(code);
         }
 
+        // Handle new run dialog
+        if self.state.show_new_run_dialog {
+            return self.handle_new_run_dialog_key(code);
+        }
+
         // Handle detail view specially
         if self.state.current_view == WorkerView::RunDetail {
             return self.handle_detail_key(code);
@@ -309,6 +314,15 @@ impl WorkerApp {
             // Show quit confirmation
             KeyCode::Char('q') | KeyCode::Esc => {
                 self.state.show_quit_confirm = true;
+            }
+
+            // New run (in Runs view)
+            KeyCode::Char('n') => {
+                if self.state.current_view == WorkerView::Runs {
+                    self.state.show_new_run_dialog = true;
+                    self.state.new_run_prompt.clear();
+                    self.state.new_run_cursor = 0;
+                }
             }
 
             // View switching with number keys
@@ -402,6 +416,84 @@ impl WorkerApp {
         false
     }
 
+    /// Handle key press in new run dialog.
+    fn handle_new_run_dialog_key(&mut self, code: KeyCode) -> bool {
+        match code {
+            // Cancel
+            KeyCode::Esc => {
+                self.state.show_new_run_dialog = false;
+                self.state.new_run_prompt.clear();
+            }
+            // Submit
+            KeyCode::Enter => {
+                if !self.state.new_run_prompt.is_empty() {
+                    let prompt = self.state.new_run_prompt.clone();
+                    self.state.show_new_run_dialog = false;
+                    self.state.new_run_prompt.clear();
+                    self.state.new_run_cursor = 0;
+
+                    // Send command to create task
+                    let _ = self.cmd_tx.blocking_send(WorkerCommand::CreateTask { prompt });
+                    self.state.add_log(LogLevel::Info, "Creating new task...".to_string());
+                }
+            }
+            // Character input (unicode-safe)
+            KeyCode::Char(c) => {
+                let byte_idx = self.state.new_run_prompt
+                    .char_indices()
+                    .nth(self.state.new_run_cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(self.state.new_run_prompt.len());
+                self.state.new_run_prompt.insert(byte_idx, c);
+                self.state.new_run_cursor += 1;
+            }
+            // Backspace (unicode-safe)
+            KeyCode::Backspace => {
+                if self.state.new_run_cursor > 0 {
+                    self.state.new_run_cursor -= 1;
+                    if let Some((byte_idx, ch)) = self.state.new_run_prompt
+                        .char_indices()
+                        .nth(self.state.new_run_cursor)
+                    {
+                        self.state.new_run_prompt.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                    }
+                }
+            }
+            // Delete (unicode-safe)
+            KeyCode::Delete => {
+                let char_count = self.state.new_run_prompt.chars().count();
+                if self.state.new_run_cursor < char_count {
+                    if let Some((byte_idx, ch)) = self.state.new_run_prompt
+                        .char_indices()
+                        .nth(self.state.new_run_cursor)
+                    {
+                        self.state.new_run_prompt.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                    }
+                }
+            }
+            // Cursor movement (unicode-safe)
+            KeyCode::Left => {
+                if self.state.new_run_cursor > 0 {
+                    self.state.new_run_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let char_count = self.state.new_run_prompt.chars().count();
+                if self.state.new_run_cursor < char_count {
+                    self.state.new_run_cursor += 1;
+                }
+            }
+            KeyCode::Home => {
+                self.state.new_run_cursor = 0;
+            }
+            KeyCode::End => {
+                self.state.new_run_cursor = self.state.new_run_prompt.chars().count();
+            }
+            _ => {}
+        }
+        false
+    }
+
     /// Handle key press in detail view.
     fn handle_detail_key(&mut self, code: KeyCode) -> bool {
         // When input is focused, handle text input first
@@ -466,35 +558,52 @@ impl WorkerApp {
                     self.state.detail_pane = DetailPane::Events;
                 }
 
-                // Character input
+                // Character input (unicode-safe)
                 KeyCode::Char(c) => {
-                    self.state.chat_input.insert(self.state.chat_input_cursor, c);
+                    let byte_idx = self.state.chat_input
+                        .char_indices()
+                        .nth(self.state.chat_input_cursor)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.state.chat_input.len());
+                    self.state.chat_input.insert(byte_idx, c);
                     self.state.chat_input_cursor += 1;
                 }
 
-                // Backspace
+                // Backspace (unicode-safe)
                 KeyCode::Backspace => {
                     if self.state.chat_input_cursor > 0 {
                         self.state.chat_input_cursor -= 1;
-                        self.state.chat_input.remove(self.state.chat_input_cursor);
+                        if let Some((byte_idx, ch)) = self.state.chat_input
+                            .char_indices()
+                            .nth(self.state.chat_input_cursor)
+                        {
+                            self.state.chat_input.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                        }
                     }
                 }
 
-                // Delete
+                // Delete (unicode-safe)
                 KeyCode::Delete => {
-                    if self.state.chat_input_cursor < self.state.chat_input.len() {
-                        self.state.chat_input.remove(self.state.chat_input_cursor);
+                    let char_count = self.state.chat_input.chars().count();
+                    if self.state.chat_input_cursor < char_count {
+                        if let Some((byte_idx, ch)) = self.state.chat_input
+                            .char_indices()
+                            .nth(self.state.chat_input_cursor)
+                        {
+                            self.state.chat_input.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                        }
                     }
                 }
 
-                // Cursor movement
+                // Cursor movement (unicode-safe)
                 KeyCode::Left => {
                     if self.state.chat_input_cursor > 0 {
                         self.state.chat_input_cursor -= 1;
                     }
                 }
                 KeyCode::Right => {
-                    if self.state.chat_input_cursor < self.state.chat_input.len() {
+                    let char_count = self.state.chat_input.chars().count();
+                    if self.state.chat_input_cursor < char_count {
                         self.state.chat_input_cursor += 1;
                     }
                 }
@@ -502,7 +611,7 @@ impl WorkerApp {
                     self.state.chat_input_cursor = 0;
                 }
                 KeyCode::End => {
-                    self.state.chat_input_cursor = self.state.chat_input.len();
+                    self.state.chat_input_cursor = self.state.chat_input.chars().count();
                 }
 
                 // Up arrow scrolls chat
