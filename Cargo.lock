@@ -5137,16 +5137,24 @@ dependencies = [
 name = "taskrun-tui"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "clap",
  "crossterm",
  "ratatui",
+ "serde",
+ "serde_json",
  "taskrun-admin-client",
+ "taskrun-claude-sdk",
  "taskrun-core",
  "taskrun-proto",
+ "thiserror 2.0.17",
  "tokio",
+ "tokio-stream",
+ "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -5155,6 +5163,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "clap",
  "serde_json",
  "taskrun-claude-sdk",
  "taskrun-core",

@@ -10,7 +10,7 @@ Open source control plane for orchestrating AI agents on remote workers.
 - **OpenAI-compatible API**: Drop-in replacement with `/v1/responses` endpoint
 - **Real-time streaming**: SSE and gRPC bidirectional streaming for live output
 - **Secure communication**: TLS + mTLS between control plane and workers
-- **CLI & DevTools**: Command-line interface and Tauri desktop application
+- **CLI, TUI & DevTools**: Command-line interface, terminal dashboard, and Tauri desktop app
 - **Observability**: Prometheus metrics, structured logging, workers dashboard
 
 ## Quick Start
@@ -140,6 +140,41 @@ data: {"type":"response.completed","response":{...}}
 | `/v1/enroll` | POST | Worker certificate enrollment |
 | `/v1/tasks/:id/events` | GET | Run events for a task (JSON) |
 | `/v1/tasks/:id/output` | GET | Task output stream (SSE) |
+
+## TUI (Terminal User Interface)
+
+Interactive terminal dashboard for monitoring and operating TaskRun.
+
+```bash
+# Control plane monitoring (workers, tasks, logs)
+cargo run -p taskrun-tui
+
+# Worker mode (interactive worker with setup screen)
+cargo run -p taskrun-tui -- worker
+```
+
+### Control Plane TUI
+
+Monitor connected workers, view tasks, and see real-time logs. Navigate with:
+- `Tab` or `1-4` - Switch views (Workers, Tasks, Logs, Config)
+- `j/k` or arrows - Navigate lists
+- `q` - Quit
+
+### Worker TUI
+
+Run an interactive worker with a setup screen for selecting agent and model:
+- Setup screen prompts for agent (general, support_triage) and model selection
+- Real-time connection status and run monitoring
+- Live log streaming
+- Auto-reconnection with exponential backoff
+
+```bash
+# With custom options
+cargo run -p taskrun-tui -- worker \
+  --agent general \
+  --model claude-sonnet-4-5 \
+  --endpoint https://[::1]:50051
+```
 
 ## CLI
 
@@ -272,7 +307,8 @@ taskrun/
     ├── taskrun-core/           # Domain types (Task, Run, Worker)
     ├── taskrun-proto/          # Generated gRPC code + converters
     ├── taskrun-control-plane/  # Control plane server
-    ├── taskrun-worker/         # Worker daemon
+    ├── taskrun-worker/         # Worker daemon (headless)
+    ├── taskrun-tui/            # Terminal UI (control plane + worker modes)
     ├── taskrun-cli/            # Command line interface
     └── taskrun-claude-sdk/     # Claude Code SDK for agent execution
 ```
@@ -355,6 +391,7 @@ RUST_LOG=info          # Logging level (trace, debug, info, warn, error)
 - [x] SSE streaming for real-time output
 - [x] Error handling with proper HTTP status codes
 - [x] CLI tool (`taskrun-cli`)
+- [x] TUI dashboard (control plane monitoring + interactive worker)
 - [x] DevTools desktop app (Tauri + Leptos)
 - [x] Prometheus metrics
 - [x] Workers UI dashboard

@@ -1,7 +1,6 @@
 //! Agent execution via Claude Code SDK.
 //!
-//! This module uses the `taskrun-claude-sdk` crate for structured communication
-//! with Claude Code, providing streaming output and session tracking.
+//! Adapted from taskrun-worker for use in the TUI.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -17,19 +16,18 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use crate::config::Config;
+use super::connection::ConnectionConfig;
 
 /// Errors that can occur during agent execution.
 #[derive(Debug, Error)]
+#[allow(dead_code)] // Some variants are for API completeness
 pub enum ExecutorError {
-    #[allow(dead_code)] // Kept for potential future use
     #[error("Claude CLI not found at '{0}'. Ensure Claude Code is installed.")]
     ClaudeNotFound(String),
 
     #[error("Failed to spawn Claude process: {0}")]
     SpawnError(#[from] std::io::Error),
 
-    #[allow(dead_code)] // Kept for potential future use
     #[error("Claude process exited with error: {0}")]
     ProcessError(String),
 
@@ -130,7 +128,7 @@ impl ControlHandler for StreamingHandler {
             ClaudeMessage::ControlRequest { .. } => "ControlRequest",
             ClaudeMessage::Unknown(_) => "Unknown",
         };
-        info!(message_type = msg_type, "StreamingHandler received message");
+        debug!(message_type = msg_type, "StreamingHandler received message");
 
         match message {
             ClaudeMessage::System {
@@ -162,13 +160,13 @@ impl ControlHandler for StreamingHandler {
             }
             ClaudeMessage::Assistant { message, .. } => {
                 // Extract text content and stream it
-                info!(
+                debug!(
                     content_count = message.content.len(),
                     "Assistant message received"
                 );
                 for content in message.content {
                     if let ContentItem::Text { text } = content {
-                        info!(text_len = text.len(), "Streaming assistant text chunk");
+                        debug!(text_len = text.len(), "Streaming assistant text chunk");
                         let chunk = OutputChunk {
                             content: text,
                             is_final: false,
@@ -186,7 +184,7 @@ impl ControlHandler for StreamingHandler {
                     index,
                 } = event
                 {
-                    info!(
+                    debug!(
                         text_len = text.len(),
                         block_index = index,
                         "Streaming text delta"
@@ -230,7 +228,7 @@ impl ControlHandler for StreamingHandler {
                 }
             }
             ClaudeMessage::ToolUse { tool_name, .. } => {
-                info!(tool = %tool_name, "Tool use message");
+                debug!(tool = %tool_name, "Tool use message");
 
                 // Emit ToolRequested event
                 self.emit_event(RunEvent::tool_requested(
@@ -241,7 +239,7 @@ impl ControlHandler for StreamingHandler {
                 .await;
             }
             ClaudeMessage::ToolResult { is_error, .. } => {
-                info!(is_error = ?is_error, "Tool result message");
+                debug!(is_error = ?is_error, "Tool result message");
 
                 // Emit ToolCompleted event
                 self.emit_event(RunEvent::tool_completed(
@@ -257,7 +255,7 @@ impl ControlHandler for StreamingHandler {
                     .unwrap_or_else(|_| "failed to serialize".to_string());
                 // Check if this is a control_response (expected)
                 if value.get("type").and_then(|t| t.as_str()) == Some("control_response") {
-                    info!(
+                    debug!(
                         len = full_json.len(),
                         "Received control_response (expected)"
                     );
@@ -278,12 +276,12 @@ impl ControlHandler for StreamingHandler {
 #[derive(Clone)]
 pub struct ClaudeCodeExecutor {
     /// Worker configuration including claude path and tool permissions.
-    config: Arc<Config>,
+    config: Arc<ConnectionConfig>,
 }
 
 impl ClaudeCodeExecutor {
     /// Create a new executor with the given configuration.
-    pub fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: Arc<ConnectionConfig>) -> Self {
         Self { config }
     }
 
@@ -422,39 +420,12 @@ Respond with a JSON object only, no additional text:
 
 /// Result of a successful execution.
 #[derive(Debug)]
+#[allow(dead_code)] // session_id is for API completeness
 pub struct ExecutionResult {
     /// The model that was used for execution.
     pub model_used: String,
     /// The provider (e.g., "anthropic").
     pub provider: String,
     /// The session ID for continuation (if available).
-    #[allow(dead_code)] // Exposed for future session continuation support
     pub session_id: Option<String>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_config() -> Arc<Config> {
-        Arc::new(Config::default())
-    }
-
-    #[test]
-    fn test_build_support_triage_prompt() {
-        let executor = ClaudeCodeExecutor::new(test_config());
-        let input = r#"{"ticket_id": "123", "subject": "Cannot login"}"#;
-        let prompt = executor.build_support_triage_prompt(input);
-
-        assert!(prompt.contains("support ticket triage"));
-        assert!(prompt.contains("ticket_id"));
-        assert!(prompt.contains("priority"));
-    }
-
-    #[test]
-    fn test_unknown_agent() {
-        let executor = ClaudeCodeExecutor::new(test_config());
-        let result = executor.build_prompt("unknown_agent", "{}");
-        assert!(matches!(result, Err(ExecutorError::UnknownAgent(_))));
-    }
 }

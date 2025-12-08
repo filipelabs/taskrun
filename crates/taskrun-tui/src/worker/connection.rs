@@ -1,4 +1,6 @@
-//! Connection management for the worker.
+//! Connection management for the worker TUI.
+//!
+//! Adapted from taskrun-worker to forward events to the UI.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -11,7 +13,7 @@ use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::{error, info, warn};
 
-use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerInfo};
+use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerId, WorkerInfo};
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
@@ -20,35 +22,94 @@ use taskrun_proto::pb::{
 };
 use taskrun_proto::RunServiceClient;
 
-use crate::config::Config;
-use crate::executor::ClaudeCodeExecutor;
+use super::event::WorkerUiEvent;
+use super::executor::ClaudeCodeExecutor;
+use super::state::{ConnectionState, LogLevel, WorkerConfig};
 
-/// Manages connection to the control plane.
+/// Internal config used by the connection.
+#[derive(Debug, Clone)]
+pub struct ConnectionConfig {
+    pub worker_id: String,
+    pub control_plane_addr: String,
+    pub tls_ca_cert_path: String,
+    pub tls_cert_path: String,
+    pub tls_key_path: String,
+    pub agent_name: String,
+    pub model_provider: String,
+    pub model_name: String,
+    pub heartbeat_interval_secs: u64,
+    pub max_concurrent_runs: u32,
+    pub allowed_tools: Option<Vec<String>>,
+    pub denied_tools: Option<Vec<String>>,
+    pub claude_path: String,
+}
+
+impl ConnectionConfig {
+    /// Create a ConnectionConfig with a pre-generated worker ID.
+    pub fn from_with_id(config: &WorkerConfig, worker_id: String) -> Self {
+        let (provider, model) = config.parse_model();
+        Self {
+            worker_id,
+            control_plane_addr: config.endpoint.clone(),
+            tls_ca_cert_path: config.ca_cert_path.clone(),
+            tls_cert_path: config.client_cert_path.clone(),
+            tls_key_path: config.client_key_path.clone(),
+            agent_name: config.agent_name.clone(),
+            model_provider: provider,
+            model_name: model,
+            heartbeat_interval_secs: 30,
+            max_concurrent_runs: config.max_concurrent_runs,
+            allowed_tools: config.allowed_tools.clone(),
+            denied_tools: config.denied_tools.clone(),
+            claude_path: "claude".to_string(),
+        }
+    }
+
+    /// Generate a new unique worker ID.
+    pub fn generate_worker_id() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+}
+
+impl From<&WorkerConfig> for ConnectionConfig {
+    fn from(config: &WorkerConfig) -> Self {
+        Self::from_with_id(config, Self::generate_worker_id())
+    }
+}
+
+/// Manages connection to the control plane with UI event forwarding.
 pub struct WorkerConnection {
-    config: Arc<Config>,
+    config: Arc<ConnectionConfig>,
     outbound_tx: Option<mpsc::Sender<RunClientMessage>>,
     active_run_count: Arc<AtomicU32>,
     executor: Arc<ClaudeCodeExecutor>,
+    ui_tx: mpsc::Sender<WorkerUiEvent>,
 }
 
+#[allow(dead_code)] // worker_id is for API completeness
 impl WorkerConnection {
     /// Create a new WorkerConnection.
-    pub fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: ConnectionConfig, ui_tx: mpsc::Sender<WorkerUiEvent>) -> Self {
+        let config = Arc::new(config);
         let executor = Arc::new(ClaudeCodeExecutor::new(config.clone()));
         Self {
             config,
             outbound_tx: None,
             active_run_count: Arc::new(AtomicU32::new(0)),
             executor,
+            ui_tx,
         }
+    }
+
+    /// Get the worker ID.
+    pub fn worker_id(&self) -> &str {
+        &self.config.worker_id
     }
 
     /// Connect to control plane and run the main loop.
     /// Returns on disconnect (caller should handle reconnection).
-    pub async fn connect_and_run(
-        &mut self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!(addr = %self.config.control_plane_addr, "Connecting to control plane with mTLS");
+    pub async fn connect_and_run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.log(LogLevel::Info, format!("Connecting to control plane at {}", self.config.control_plane_addr));
 
         // Load CA certificate for pinned trust
         let ca_cert = std::fs::read(&self.config.tls_ca_cert_path).map_err(|e| {
@@ -61,13 +122,13 @@ impl WorkerConnection {
         // Load client certificate and key for mTLS
         let client_cert = std::fs::read(&self.config.tls_cert_path).map_err(|e| {
             format!(
-                "Failed to read worker certificate from '{}': {}. Run scripts/gen-worker-cert.sh first.",
+                "Failed to read worker certificate from '{}': {}",
                 self.config.tls_cert_path, e
             )
         })?;
         let client_key = std::fs::read(&self.config.tls_key_path).map_err(|e| {
             format!(
-                "Failed to read worker key from '{}': {}. Run scripts/gen-worker-cert.sh first.",
+                "Failed to read worker key from '{}': {}",
                 self.config.tls_key_path, e
             )
         })?;
@@ -95,7 +156,15 @@ impl WorkerConnection {
         let response = client.stream_connect(outbound_stream).await?;
         let mut inbound = response.into_inner();
 
-        info!("Connected to control plane, sending WorkerHello");
+        self.log(LogLevel::Info, "Connected to control plane, sending WorkerHello".to_string());
+
+        // Notify UI we're connected
+        let _ = self
+            .ui_tx
+            .send(WorkerUiEvent::ConnectionStateChanged(
+                ConnectionState::Connected,
+            ))
+            .await;
 
         // Send WorkerHello
         self.send_hello().await?;
@@ -115,7 +184,7 @@ impl WorkerConnection {
                     self.handle_server_message(msg).await;
                 }
                 Err(e) => {
-                    warn!(error = %e, "Stream error");
+                    self.log(LogLevel::Warn, format!("Stream error: {}", e));
                     break;
                 }
             }
@@ -125,7 +194,7 @@ impl WorkerConnection {
         heartbeat_handle.abort();
         self.outbound_tx = None;
 
-        info!("Disconnected from control plane");
+        self.log(LogLevel::Info, "Disconnected from control plane".to_string());
         Ok(())
     }
 
@@ -160,9 +229,75 @@ impl WorkerConnection {
         // Get hostname
         let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
 
-        WorkerInfo::new(self.config.worker_id.clone(), hostname)
+        WorkerInfo::new(WorkerId::new(&self.config.worker_id), hostname)
             .with_agent(agent)
             .with_label("env", "development")
+    }
+
+    async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage) {
+        if let Some(payload) = msg.payload {
+            match payload {
+                ServerPayload::AssignRun(assignment) => {
+                    self.log(
+                        LogLevel::Info,
+                        format!(
+                            "Received run assignment: run_id={}, agent={}",
+                            assignment.run_id, assignment.agent_name
+                        ),
+                    );
+
+                    // Notify UI of run start
+                    let _ = self
+                        .ui_tx
+                        .send(WorkerUiEvent::RunStarted {
+                            run_id: assignment.run_id.clone(),
+                            task_id: assignment.task_id.clone(),
+                            agent: assignment.agent_name.clone(),
+                        })
+                        .await;
+
+                    // Spawn real execution via Claude Code
+                    if let Some(tx) = &self.outbound_tx {
+                        let tx = tx.clone();
+                        let active_count = self.active_run_count.clone();
+                        let executor = self.executor.clone();
+                        let ui_tx = self.ui_tx.clone();
+
+                        tokio::spawn(async move {
+                            execute_real_run(executor, tx, assignment, active_count, ui_tx).await;
+                        });
+                    }
+                }
+                ServerPayload::CancelRun(cancel) => {
+                    self.log(
+                        LogLevel::Info,
+                        format!(
+                            "Received cancel request: run_id={}, reason={}",
+                            cancel.run_id, cancel.reason
+                        ),
+                    );
+                }
+                ServerPayload::Ack(ack) => {
+                    self.log(
+                        LogLevel::Debug,
+                        format!("Received ack: type={}, ref_id={}", ack.ack_type, ack.ref_id),
+                    );
+                }
+            }
+        }
+    }
+
+    fn log(&self, level: LogLevel, message: String) {
+        // Also log via tracing
+        match level {
+            LogLevel::Debug => tracing::debug!("{}", message),
+            LogLevel::Info => tracing::info!("{}", message),
+            LogLevel::Warn => tracing::warn!("{}", message),
+            LogLevel::Error => tracing::error!("{}", message),
+        }
+
+        // Send to UI (non-blocking)
+        let _ = self.ui_tx.try_send(WorkerUiEvent::LogMessage { level, message });
     }
 }
 
@@ -175,57 +310,20 @@ fn get_agent_description(agent_name: &str) -> String {
     }
 }
 
-impl WorkerConnection {
-    async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage) {
-        if let Some(payload) = msg.payload {
-            match payload {
-                ServerPayload::AssignRun(assignment) => {
-                    info!(
-                        run_id = %assignment.run_id,
-                        task_id = %assignment.task_id,
-                        agent = %assignment.agent_name,
-                        "Received run assignment"
-                    );
-
-                    // Spawn real execution via Claude Code
-                    if let Some(tx) = &self.outbound_tx {
-                        let tx = tx.clone();
-                        let active_count = self.active_run_count.clone();
-                        let executor = self.executor.clone();
-
-                        tokio::spawn(async move {
-                            execute_real_run(executor, tx, assignment, active_count).await;
-                        });
-                    }
-                }
-                ServerPayload::CancelRun(cancel) => {
-                    info!(
-                        run_id = %cancel.run_id,
-                        reason = %cancel.reason,
-                        "Received cancel request"
-                    );
-                    // TODO: Cancel the run (would need to track JoinHandles)
-                }
-                ServerPayload::Ack(ack) => {
-                    info!(ack_type = %ack.ack_type, ref_id = %ack.ref_id, "Received ack");
-                }
-            }
-        }
-    }
-}
-
 /// Execute a real run via Claude Code subprocess.
 async fn execute_real_run(
     executor: Arc<ClaudeCodeExecutor>,
     tx: mpsc::Sender<RunClientMessage>,
     assignment: RunAssignment,
     active_count: Arc<AtomicU32>,
+    ui_tx: mpsc::Sender<WorkerUiEvent>,
 ) {
     let run_id = assignment.run_id.clone();
     let task_id = assignment.task_id.clone();
 
     // Increment active run count
-    active_count.fetch_add(1, Ordering::SeqCst);
+    let count = active_count.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = ui_tx.send(WorkerUiEvent::StatsUpdated { active_runs: count }).await;
 
     info!(run_id = %run_id, agent = %assignment.agent_name, "Starting real execution via Claude Code");
 
@@ -233,7 +331,7 @@ async fn execute_real_run(
     send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
 
     // Create channel for streaming output from executor
-    let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
+    let (chunk_tx, mut chunk_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
 
     // Create channel for events from executor
     let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
@@ -246,42 +344,80 @@ async fn execute_real_run(
         }
     });
 
-    // Spawn executor in background
+    // Spawn output forwarder to UI
+    let ui_tx_output = ui_tx.clone();
+    let run_id_output = run_id.clone();
+    let output_handle = tokio::spawn(async move {
+        let mut seq = 0u64;
+        while let Some(chunk) = chunk_rx.recv().await {
+            if !chunk.is_final && !chunk.content.is_empty() {
+                // Send to UI
+                let _ = ui_tx_output
+                    .send(WorkerUiEvent::RunProgress {
+                        run_id: run_id_output.clone(),
+                        output: chunk.content.clone(),
+                    })
+                    .await;
+                seq += 1;
+            }
+        }
+        seq
+    });
+
+    // Create separate chunk channel for gRPC streaming
+    let (grpc_chunk_tx, mut grpc_chunk_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
+
+    // Spawn gRPC output streamer
+    let grpc_tx = tx.clone();
+    let run_id_grpc = run_id.clone();
+    let grpc_handle = tokio::spawn(async move {
+        let mut seq = 0u64;
+        while let Some(chunk) = grpc_chunk_rx.recv().await {
+            if !chunk.is_final && !chunk.content.is_empty() {
+                send_output_chunk(&grpc_tx, &run_id_grpc, seq, chunk.content, false).await;
+                seq += 1;
+            }
+        }
+        seq
+    });
+
+    // Execute
     let executor_clone = executor.clone();
     let agent_name = assignment.agent_name.clone();
     let input_json = assignment.input_json.clone();
     let run_id_clone = RunId::new(&run_id);
     let task_id_clone = TaskId::new(&task_id);
-    let executor_handle = tokio::spawn(async move {
-        executor_clone
-            .execute(
-                &agent_name,
-                &input_json,
-                chunk_tx,
-                event_tx,
-                run_id_clone,
-                task_id_clone,
-            )
-            .await
+
+    // Create a forking sender that sends to both UI and gRPC
+    let (fork_tx, mut fork_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
+    let chunk_tx_clone = chunk_tx;
+    let grpc_chunk_tx_clone = grpc_chunk_tx;
+    let fork_handle = tokio::spawn(async move {
+        while let Some(chunk) = fork_rx.recv().await {
+            let _ = chunk_tx_clone.send(chunk.clone()).await;
+            let _ = grpc_chunk_tx_clone.send(chunk).await;
+        }
     });
 
-    // Stream chunks as they arrive
-    let mut seq = 0u64;
-    while let Some(chunk) = chunk_rx.recv().await {
-        if !chunk.is_final && !chunk.content.is_empty() {
-            send_output_chunk(&tx, &run_id, seq, chunk.content, false).await;
-            seq += 1;
-        }
-    }
+    let result = executor_clone
+        .execute(
+            &agent_name,
+            &input_json,
+            fork_tx,
+            event_tx,
+            run_id_clone,
+            task_id_clone,
+        )
+        .await;
 
-    // Wait for executor to complete and get result
-    let result = executor_handle.await;
-
-    // Wait for event forwarder to finish
+    // Wait for all handlers
+    let _ = output_handle.await;
+    let seq = grpc_handle.await.unwrap_or(0);
     let _ = event_handle.await;
+    let _ = fork_handle.await;
 
     match result {
-        Ok(Ok(exec_result)) => {
+        Ok(exec_result) => {
             // Send final chunk
             send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
 
@@ -305,9 +441,18 @@ async fn execute_real_run(
             )
             .await;
 
+            // Notify UI
+            let _ = ui_tx
+                .send(WorkerUiEvent::RunCompleted {
+                    run_id: run_id.clone(),
+                    success: true,
+                    error_message: None,
+                })
+                .await;
+
             info!(run_id = %run_id, "Real execution completed successfully");
         }
-        Ok(Err(e)) => {
+        Err(e) => {
             // Executor returned an error
             error!(run_id = %run_id, error = %e, "Execution failed");
             send_status_update_with_error(
@@ -317,22 +462,21 @@ async fn execute_real_run(
                 e.to_string(),
             )
             .await;
-        }
-        Err(e) => {
-            // Task panicked or was cancelled
-            error!(run_id = %run_id, error = %e, "Executor task failed");
-            send_status_update_with_error(
-                &tx,
-                &run_id,
-                taskrun_proto::pb::RunStatus::Failed,
-                format!("Executor task failed: {}", e),
-            )
-            .await;
+
+            // Notify UI
+            let _ = ui_tx
+                .send(WorkerUiEvent::RunCompleted {
+                    run_id: run_id.clone(),
+                    success: false,
+                    error_message: Some(e.to_string()),
+                })
+                .await;
         }
     }
 
     // Decrement active run count
-    active_count.fetch_sub(1, Ordering::SeqCst);
+    let count = active_count.fetch_sub(1, Ordering::SeqCst) - 1;
+    let _ = ui_tx.send(WorkerUiEvent::StatsUpdated { active_runs: count }).await;
 }
 
 /// Send a status update to the control plane.
@@ -444,7 +588,7 @@ async fn send_event(tx: &mpsc::Sender<RunClientMessage>, event: RunEvent) {
 
 async fn run_heartbeat_loop(
     tx: mpsc::Sender<RunClientMessage>,
-    config: Arc<Config>,
+    config: Arc<ConnectionConfig>,
     active_count: Arc<AtomicU32>,
 ) {
     let interval = Duration::from_secs(config.heartbeat_interval_secs);
@@ -461,7 +605,7 @@ async fn run_heartbeat_loop(
         };
 
         let heartbeat = WorkerHeartbeat {
-            worker_id: config.worker_id.as_str().to_string(),
+            worker_id: config.worker_id.clone(),
             status: status as i32,
             active_runs: runs,
             max_concurrent_runs: config.max_concurrent_runs,

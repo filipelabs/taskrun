@@ -3,31 +3,39 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::{error, info, Level};
-use tracing_subscriber::FmtSubscriber;
+use clap::Parser;
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 mod config;
 mod connection;
 mod executor;
 
-use config::Config;
+use config::{Cli, Config};
 use connection::WorkerConnection;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .with_target(true)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    // Parse CLI arguments
+    let cli = Cli::parse();
 
-    // Load config
-    let config = Arc::new(Config::default());
+    // Initialize tracing with log level from CLI
+    let filter = EnvFilter::try_new(&cli.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .init();
+
+    // Build config from CLI
+    let config = Arc::new(Config::from_cli(&cli));
 
     info!(
         worker_id = %config.worker_id,
         control_plane = %config.control_plane_addr,
+        agent = %config.agent_name,
+        model = format!("{}/{}", config.model_provider, config.model_name),
+        allowed_tools = ?config.allowed_tools,
+        denied_tools = ?config.denied_tools,
         "Starting TaskRun worker"
     );
 

@@ -14,6 +14,7 @@ mod backend;
 mod event;
 mod state;
 mod ui;
+mod worker;
 
 use app::App;
 use event::{BackendCommand, UiEvent};
@@ -57,11 +58,44 @@ enum Commands {
         refresh: u64,
     },
 
-    /// Worker local dashboard - view connection status, active runs, and output
+    /// Worker TUI - run a worker with interactive dashboard
+    #[command(alias = "w")]
     Worker {
-        /// Worker admin endpoint
-        #[arg(short, long, default_value = "http://127.0.0.1:50060")]
+        /// Agent name to run (e.g., general, support_triage)
+        #[arg(short, long, default_value = "general")]
+        agent: String,
+
+        /// Model to use (opus, sonnet, haiku, or full name like claude-sonnet-4-5)
+        #[arg(short, long, default_value = "claude-sonnet-4-5")]
+        model: String,
+
+        /// Control plane gRPC endpoint
+        #[arg(short, long, default_value = "https://[::1]:50051")]
         endpoint: String,
+
+        /// CA certificate for TLS (PEM file path)
+        #[arg(long, default_value = "certs/ca.crt")]
+        ca_cert: String,
+
+        /// Client certificate for mTLS (PEM file path)
+        #[arg(long, default_value = "certs/worker.crt")]
+        client_cert: String,
+
+        /// Client key for mTLS (PEM file path)
+        #[arg(long, default_value = "certs/worker.key")]
+        client_key: String,
+
+        /// Tools to allow (comma-separated, e.g., "Read,Write,Bash")
+        #[arg(long)]
+        allow_tools: Option<String>,
+
+        /// Tools to deny (comma-separated, e.g., "WebSearch,Bash")
+        #[arg(long)]
+        deny_tools: Option<String>,
+
+        /// Maximum concurrent runs
+        #[arg(long, default_value = "10")]
+        max_concurrent_runs: u32,
     },
 }
 
@@ -96,9 +130,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                 refresh,
             )?;
         }
-        Commands::Worker { endpoint: _ } => {
-            // Worker TUI not yet implemented
-            eprintln!("Worker TUI not yet implemented");
+        Commands::Worker {
+            agent,
+            model,
+            endpoint,
+            ca_cert,
+            client_cert,
+            client_key,
+            allow_tools,
+            deny_tools,
+            max_concurrent_runs,
+        } => {
+            let config = worker::WorkerConfig {
+                agent_name: agent,
+                model_name: model,
+                endpoint,
+                ca_cert_path: ca_cert,
+                client_cert_path: client_cert,
+                client_key_path: client_key,
+                allowed_tools: allow_tools.map(|s| parse_tools(&s)),
+                denied_tools: deny_tools.map(|s| parse_tools(&s)),
+                max_concurrent_runs,
+            };
+            worker::run_worker_tui(config)?;
         }
     }
 
@@ -166,4 +220,13 @@ fn run_control_plane_tui(
     info!("TUI shutdown complete");
 
     result.map_err(|e| e.into())
+}
+
+/// Parse comma-separated tool names into a vector.
+fn parse_tools(tools: &str) -> Vec<String> {
+    tools
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }

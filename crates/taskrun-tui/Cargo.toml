@@ -12,9 +12,12 @@ path = "src/main.rs"
 taskrun-core = { path = "../taskrun-core" }
 taskrun-proto = { path = "../taskrun-proto" }
 taskrun-admin-client = { path = "../taskrun-admin-client" }
+taskrun-claude-sdk = { path = "../taskrun-claude-sdk" }
 
 # Async
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
+async-trait = { workspace = true }
 
 # TUI
 ratatui = "0.29"
@@ -23,9 +26,22 @@ crossterm = "0.28"
 # CLI
 clap = { workspace = true }
 
+# gRPC
+tonic = { workspace = true }
+
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
 # Time
 chrono = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
