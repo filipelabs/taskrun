@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 use ratatui::Frame;
 
+use crate::event::ConnectionState;
 use crate::state::{UiState, View};
 
 /// Render the entire UI.
@@ -75,21 +76,46 @@ fn render_body(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) 
     frame.render_widget(content, area);
 }
 
-/// Render the footer with status message.
+/// Render the footer with status message and connection indicator.
 fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState) {
+    // Connection indicator
+    let connection_indicator = match &state.connection_state {
+        ConnectionState::Connecting => Span::styled(
+            "[ CONNECTING ] ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ConnectionState::Connected => Span::styled(
+            "[ CONNECTED ] ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ConnectionState::Disconnected { retry_in } => Span::styled(
+            format!("[ DISCONNECTED - {}s ] ", retry_in.as_secs()),
+            Style::default()
+                .fg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        ),
+    };
+
     let status = state.status_message.as_deref().unwrap_or("Ready");
 
     let status_color = if state.last_error.is_some() {
         Color::Red
-    } else if state.is_connected {
-        Color::Green
     } else {
-        Color::Yellow
+        match &state.connection_state {
+            ConnectionState::Connected => Color::Green,
+            ConnectionState::Connecting => Color::Yellow,
+            ConnectionState::Disconnected { .. } => Color::Red,
+        }
     };
 
-    let help = " q: quit | Tab: next view | 1-4: switch view | r: refresh ";
+    let help = " q: quit | Tab: next | 1-4: view | r: refresh/reconnect ";
 
     let footer = Line::from(vec![
+        connection_indicator,
         Span::styled(status, Style::default().fg(status_color)),
         Span::raw(" | "),
         Span::styled(help, Style::default().fg(Color::DarkGray)),

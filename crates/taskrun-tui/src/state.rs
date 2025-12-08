@@ -2,6 +2,8 @@
 
 use taskrun_proto::pb::{Task, Worker};
 
+use crate::event::ConnectionState;
+
 /// Available views in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum View {
@@ -13,7 +15,6 @@ pub enum View {
 }
 
 /// Snapshot of data for rendering (no async, no locks).
-#[derive(Default)]
 pub struct UiState {
     /// List of workers from control plane.
     pub workers: Vec<Worker>,
@@ -27,9 +28,26 @@ pub struct UiState {
     /// Status message to display in footer.
     pub status_message: Option<String>,
 
-    /// Whether we've successfully connected to the control plane.
-    pub is_connected: bool,
+    /// Current connection state.
+    pub connection_state: ConnectionState,
 
     /// Last error message (if any).
     pub last_error: Option<String>,
+
+    /// Number of consecutive poll failures (for UI feedback).
+    pub consecutive_failures: u32,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            workers: Vec::new(),
+            tasks: Vec::new(),
+            current_view: View::default(),
+            status_message: Some("Connecting...".to_string()),
+            connection_state: ConnectionState::Connecting,
+            last_error: None,
+            consecutive_failures: 0,
+        }
+    }
 }

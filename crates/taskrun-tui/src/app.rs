@@ -6,7 +6,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
-use crate::event::{BackendCommand, UiEvent};
+use crate::event::{BackendCommand, ConnectionState, UiEvent};
 use crate::state::{UiState, View};
 use crate::ui;
 
@@ -26,10 +26,7 @@ impl App {
     /// Create a new application instance with channel handles.
     pub fn new(ui_rx: mpsc::Receiver<UiEvent>, cmd_tx: mpsc::Sender<BackendCommand>) -> Self {
         Self {
-            state: UiState {
-                status_message: Some("Connecting...".to_string()),
-                ..Default::default()
-            },
+            state: UiState::default(),
             ui_rx,
             cmd_tx,
         }
@@ -83,18 +80,26 @@ impl App {
             }
             UiEvent::WorkersUpdated(workers) => {
                 self.state.workers = workers;
-                self.state.is_connected = true;
+                self.state.consecutive_failures = 0;
                 self.state.last_error = None;
                 self.update_status();
             }
             UiEvent::TasksUpdated(tasks) => {
                 self.state.tasks = tasks;
-                self.state.is_connected = true;
+                self.state.consecutive_failures = 0;
                 self.state.last_error = None;
                 self.update_status();
             }
             UiEvent::Error(msg) => {
                 self.state.last_error = Some(msg);
+                self.update_status();
+            }
+            UiEvent::ConnectionStateChanged(new_state) => {
+                self.state.connection_state = new_state;
+                // Clear error when reconnecting successfully
+                if matches!(self.state.connection_state, ConnectionState::Connected) {
+                    self.state.last_error = None;
+                }
                 self.update_status();
             }
             UiEvent::Key(_key) => {
@@ -109,17 +114,26 @@ impl App {
 
     /// Update the status message based on current state.
     fn update_status(&mut self) {
-        if let Some(ref error) = self.state.last_error {
-            self.state.status_message = Some(format!("Error: {}", error));
-        } else if self.state.is_connected {
-            self.state.status_message = Some(format!(
-                "Connected | Workers: {} | Tasks: {}",
-                self.state.workers.len(),
-                self.state.tasks.len()
-            ));
-        } else {
-            self.state.status_message = Some("Connecting...".to_string());
-        }
+        self.state.status_message = Some(match &self.state.connection_state {
+            ConnectionState::Connecting => "Connecting...".to_string(),
+            ConnectionState::Connected => {
+                if let Some(ref error) = self.state.last_error {
+                    format!("Connected (error: {})", error)
+                } else {
+                    format!(
+                        "Connected | Workers: {} | Tasks: {}",
+                        self.state.workers.len(),
+                        self.state.tasks.len()
+                    )
+                }
+            }
+            ConnectionState::Disconnected { retry_in } => {
+                format!(
+                    "Disconnected - reconnecting in {}s (press 'r' to retry now)",
+                    retry_in.as_secs()
+                )
+            }
+        });
     }
 
     /// Handle a key press.
@@ -164,10 +178,22 @@ impl App {
                 };
             }
 
-            // Refresh
+            // Refresh / Reconnect
             KeyCode::Char('r') => {
-                let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshWorkers);
-                let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshTasks);
+                match &self.state.connection_state {
+                    ConnectionState::Disconnected { .. } => {
+                        // Force immediate reconnect when disconnected
+                        let _ = self.cmd_tx.blocking_send(BackendCommand::ForceReconnect);
+                    }
+                    ConnectionState::Connected => {
+                        // Normal refresh when connected
+                        let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshWorkers);
+                        let _ = self.cmd_tx.blocking_send(BackendCommand::RefreshTasks);
+                    }
+                    ConnectionState::Connecting => {
+                        // Do nothing while connecting
+                    }
+                }
             }
 
             _ => {}

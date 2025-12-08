@@ -1,8 +1,24 @@
 //! Event types for communication between background tasks and UI.
 
+use std::time::Duration;
+
 use ratatui::crossterm::event::KeyEvent;
 
 use taskrun_proto::pb::{Task, Worker};
+
+/// Connection state for the backend.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ConnectionState {
+    /// Currently attempting to connect.
+    #[default]
+    Connecting,
+
+    /// Successfully connected to the control plane.
+    Connected,
+
+    /// Disconnected, will retry after the specified duration.
+    Disconnected { retry_in: Duration },
+}
 
 /// Events sent from background tasks to the UI thread.
 #[allow(dead_code)] // Will be used in future issues
@@ -20,6 +36,9 @@ pub enum UiEvent {
     /// An error occurred.
     Error(String),
 
+    /// Connection state changed.
+    ConnectionStateChanged(ConnectionState),
+
     /// Key press from terminal.
     Key(KeyEvent),
 
@@ -36,6 +55,9 @@ pub enum BackendCommand {
 
     /// Refresh tasks list.
     RefreshTasks,
+
+    /// Force immediate reconnect attempt.
+    ForceReconnect,
 
     /// Select a task to view details.
     SelectTask(String),
