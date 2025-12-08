@@ -236,6 +236,25 @@ impl WorkerApp {
                 // Update active run count - already tracked via RunStarted/RunCompleted
                 // This is a fallback for any discrepancy
             }
+            WorkerUiEvent::SessionCaptured { run_id, session_id } => {
+                // Store session_id in the run for continuation support
+                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.session_id = Some(session_id.clone());
+                }
+                // Also check completed runs (session may arrive after completion)
+                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.session_id = Some(session_id);
+                }
+            }
+            WorkerUiEvent::TurnCompleted { run_id } => {
+                // Finalize current output as assistant message (for continuation turns)
+                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.finalize_output();
+                }
+                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.finalize_output();
+                }
+            }
             WorkerUiEvent::Quit => {
                 return true;
             }
@@ -372,9 +391,51 @@ impl WorkerApp {
                     return false;
                 }
 
-                // Enter queues the message
+                // Enter sends the message if session exists, or queues it
                 KeyCode::Enter => {
-                    self.state.queue_chat_message();
+                    if !self.state.chat_input.is_empty() {
+                        let message = self.state.chat_input.clone();
+
+                        // Check if we can send immediately (have session_id)
+                        let can_send = self.state.get_viewing_run()
+                            .map(|r| r.session_id.is_some())
+                            .unwrap_or(false);
+
+                        if can_send {
+                            // Get run info for sending
+                            if let Some(run) = self.state.get_viewing_run() {
+                                let run_id = run.run_id.clone();
+                                let session_id = run.session_id.clone().unwrap();
+
+                                // Add user message to chat immediately
+                                if let Some(run) = self.state.get_viewing_run_mut() {
+                                    run.add_user_message(message.clone());
+                                }
+
+                                // Clear input
+                                self.state.chat_input.clear();
+                                self.state.chat_input_cursor = 0;
+
+                                // Send the command
+                                let _ = self.cmd_tx.blocking_send(WorkerCommand::ContinueRun {
+                                    run_id,
+                                    session_id: session_id.clone(),
+                                    message,
+                                });
+                                self.state.add_log(
+                                    LogLevel::Info,
+                                    format!("Continuing session {}", &session_id[..8.min(session_id.len())]),
+                                );
+                            }
+                        } else {
+                            // No session yet - queue for later
+                            self.state.queue_chat_message();
+                            self.state.add_log(
+                                LogLevel::Warn,
+                                "No session ID yet - message queued".to_string(),
+                            );
+                        }
+                    }
                 }
 
                 // Tab switches to events pane (unfocuses input)

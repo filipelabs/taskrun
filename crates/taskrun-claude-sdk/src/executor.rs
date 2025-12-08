@@ -217,10 +217,10 @@ impl ClaudeExecutor {
             cmd.arg("--disallowedTools").arg(tool);
         }
 
-        // Session continuation
+        // Session continuation (--resume for specific session ID)
         if let Some(sid) = session_id {
-            cmd.arg("--continue").arg(sid);
-            info!(session_id = %sid, "Continuing session");
+            cmd.arg("--resume").arg(sid);
+            info!(session_id = %sid, "Resuming session");
         }
 
         // The prompt itself

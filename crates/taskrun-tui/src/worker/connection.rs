@@ -22,7 +22,7 @@ use taskrun_proto::pb::{
 };
 use taskrun_proto::RunServiceClient;
 
-use super::event::WorkerUiEvent;
+use super::event::{WorkerCommand, WorkerUiEvent};
 use super::executor::ClaudeCodeExecutor;
 use super::state::{ConnectionState, LogLevel, WorkerConfig};
 
@@ -86,6 +86,8 @@ pub struct WorkerConnection {
     active_run_count: Arc<AtomicU32>,
     executor: Arc<ClaudeCodeExecutor>,
     ui_tx: mpsc::Sender<WorkerUiEvent>,
+    /// Session IDs for each run (for continuation support).
+    sessions: HashMap<String, String>,
 }
 
 #[allow(dead_code)] // worker_id is for API completeness
@@ -100,6 +102,7 @@ impl WorkerConnection {
             active_run_count: Arc::new(AtomicU32::new(0)),
             executor,
             ui_tx,
+            sessions: HashMap::new(),
         }
     }
 
@@ -110,7 +113,11 @@ impl WorkerConnection {
 
     /// Connect to control plane and run the main loop.
     /// Returns on disconnect (caller should handle reconnection).
-    pub async fn connect_and_run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// Accepts cmd_rx to receive commands from the UI (e.g., ContinueRun).
+    pub async fn connect_and_run(
+        &mut self,
+        cmd_rx: &mut mpsc::Receiver<WorkerCommand>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.log(LogLevel::Info, format!("Connecting to control plane at {}", self.config.control_plane_addr));
 
         // Load CA certificate for pinned trust
@@ -179,15 +186,40 @@ impl WorkerConnection {
             run_heartbeat_loop(heartbeat_tx, heartbeat_config, heartbeat_run_count).await;
         });
 
-        // Process incoming messages
-        while let Some(result) = inbound.next().await {
-            match result {
-                Ok(msg) => {
-                    self.handle_server_message(msg).await;
+        // Process incoming messages and UI commands
+        loop {
+            tokio::select! {
+                // Handle server messages
+                result = inbound.next() => {
+                    match result {
+                        Some(Ok(msg)) => {
+                            self.handle_server_message(msg).await;
+                        }
+                        Some(Err(e)) => {
+                            self.log(LogLevel::Warn, format!("Stream error: {}", e));
+                            break;
+                        }
+                        None => {
+                            // Stream ended
+                            break;
+                        }
+                    }
                 }
-                Err(e) => {
-                    self.log(LogLevel::Warn, format!("Stream error: {}", e));
-                    break;
+                // Handle UI commands
+                Some(cmd) = cmd_rx.recv() => {
+                    match cmd {
+                        WorkerCommand::Quit => {
+                            info!("Received quit command");
+                            break;
+                        }
+                        WorkerCommand::ForceReconnect => {
+                            info!("Force reconnect requested");
+                            break;
+                        }
+                        WorkerCommand::ContinueRun { run_id, session_id, message } => {
+                            self.handle_continue_run(run_id, session_id, message, tx.clone()).await;
+                        }
+                    }
                 }
             }
         }
@@ -214,6 +246,116 @@ impl WorkerConnection {
             tx.send(msg).await?;
         }
         Ok(())
+    }
+
+    /// Handle a ContinueRun command - resume a session with a follow-up message.
+    async fn handle_continue_run(
+        &self,
+        run_id: String,
+        session_id: String,
+        message: String,
+        _tx: mpsc::Sender<RunClientMessage>,
+    ) {
+        self.log(
+            LogLevel::Info,
+            format!("Continuing run {} with session {}", run_id, &session_id[..8.min(session_id.len())]),
+        );
+
+        // Notify UI that run is active again (add user message to chat)
+        let _ = self.ui_tx
+            .send(WorkerUiEvent::RunProgress {
+                run_id: run_id.clone(),
+                output: String::new(), // Will be populated by streaming
+            })
+            .await;
+
+        // Create channels for output streaming
+        let (output_tx, mut output_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
+        let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
+
+        // Spawn output forwarder to UI
+        let ui_tx_clone = self.ui_tx.clone();
+        let run_id_clone = run_id.clone();
+        let output_handle = tokio::spawn(async move {
+            while let Some(chunk) = output_rx.recv().await {
+                if !chunk.content.is_empty() {
+                    let _ = ui_tx_clone
+                        .send(WorkerUiEvent::RunProgress {
+                            run_id: run_id_clone.clone(),
+                            output: chunk.content,
+                        })
+                        .await;
+                }
+            }
+        });
+
+        // Spawn event forwarder to UI
+        let ui_tx_clone2 = self.ui_tx.clone();
+        let run_id_clone2 = run_id.clone();
+        let event_handle = tokio::spawn(async move {
+            while let Some(event) = event_rx.recv().await {
+                let _ = ui_tx_clone2
+                    .send(WorkerUiEvent::RunEvent {
+                        run_id: run_id_clone2.clone(),
+                        event_type: format!("{:?}", event.event_type),
+                        details: event.metadata.get("tool_name").cloned(),
+                    })
+                    .await;
+            }
+        });
+
+        // Execute the follow-up
+        let executor = self.executor.clone();
+        let run_id_for_exec = RunId::new(&run_id);
+        // Use the same task_id (we don't have it, use run_id as placeholder)
+        let task_id_for_exec = TaskId::new(&run_id);
+
+        let result = executor
+            .execute_follow_up(
+                &session_id,
+                &message,
+                output_tx,
+                event_tx,
+                run_id_for_exec,
+                task_id_for_exec,
+            )
+            .await;
+
+        // Wait for handlers
+        let _ = output_handle.await;
+        let _ = event_handle.await;
+
+        match result {
+            Ok(exec_result) => {
+                // Send new session_id if changed
+                if let Some(new_session_id) = &exec_result.session_id {
+                    let _ = self.ui_tx
+                        .send(WorkerUiEvent::SessionCaptured {
+                            run_id: run_id.clone(),
+                            session_id: new_session_id.clone(),
+                        })
+                        .await;
+                }
+
+                // Notify UI that turn is complete (finalize output as assistant message)
+                let _ = self.ui_tx
+                    .send(WorkerUiEvent::TurnCompleted {
+                        run_id: run_id.clone(),
+                    })
+                    .await;
+
+                self.log(LogLevel::Info, format!("Continuation completed for run {}", run_id));
+            }
+            Err(e) => {
+                self.log(LogLevel::Error, format!("Continuation failed: {}", e));
+                let _ = self.ui_tx
+                    .send(WorkerUiEvent::LogMessage {
+                        level: LogLevel::Error,
+                        message: format!("Failed to continue session: {}", e),
+                    })
+                    .await;
+            }
+        }
     }
 
     fn build_worker_info(&self) -> WorkerInfo {
@@ -457,6 +599,17 @@ async fn execute_real_run(
                 Some(backend_used),
             )
             .await;
+
+            // Send SessionCaptured event if we have a session_id (enables continuation)
+            if let Some(session_id) = &exec_result.session_id {
+                let _ = ui_tx
+                    .send(WorkerUiEvent::SessionCaptured {
+                        run_id: run_id.clone(),
+                        session_id: session_id.clone(),
+                    })
+                    .await;
+                info!(run_id = %run_id, session_id = %session_id, "Session ID captured for continuation");
+            }
 
             // Notify UI
             let _ = ui_tx

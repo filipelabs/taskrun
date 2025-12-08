@@ -74,8 +74,8 @@ pub async fn run_worker_backend(
         // Create new connection
         let mut connection = WorkerConnection::new(conn_config.clone(), ui_tx.clone());
 
-        // Try to connect and run
-        match connection.connect_and_run().await {
+        // Try to connect and run (pass cmd_rx for handling ContinueRun commands)
+        match connection.connect_and_run(&mut cmd_rx).await {
             Ok(()) => {
                 // Connection closed gracefully (server disconnected)
                 info!("Connection closed by server");
@@ -87,7 +87,7 @@ pub async fn run_worker_backend(
             }
         }
 
-        // Check if quit was requested
+        // Check if quit was requested (commands may have been consumed by connection)
         if let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
                 WorkerCommand::Quit => {
@@ -98,6 +98,9 @@ pub async fn run_worker_backend(
                     // Reset backoff on force reconnect
                     backoff = INITIAL_BACKOFF;
                     continue;
+                }
+                WorkerCommand::ContinueRun { .. } => {
+                    // Ignore - can't continue while not connected
                 }
             }
         }
@@ -151,6 +154,10 @@ async fn wait_with_commands(
                     WorkerCommand::ForceReconnect => {
                         info!("Force reconnect requested");
                         return false;
+                    }
+                    WorkerCommand::ContinueRun { .. } => {
+                        // Can't continue runs while disconnected, ignore
+                        info!("Ignoring ContinueRun command while disconnected");
                     }
                 }
             }

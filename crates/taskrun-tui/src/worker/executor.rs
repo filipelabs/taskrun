@@ -375,6 +375,83 @@ impl ClaudeCodeExecutor {
         })
     }
 
+    /// Execute a follow-up message in an existing session.
+    ///
+    /// Uses --resume <session_id> to continue the conversation.
+    pub async fn execute_follow_up(
+        &self,
+        session_id: &str,
+        message: &str,
+        output_tx: mpsc::Sender<OutputChunk>,
+        event_tx: mpsc::Sender<RunEvent>,
+        run_id: RunId,
+        task_id: TaskId,
+    ) -> Result<ExecutionResult, ExecutorError> {
+        info!(
+            session_id = %session_id,
+            message_len = message.len(),
+            "Starting session continuation"
+        );
+
+        // Emit ExecutionStarted event
+        if event_tx
+            .send(RunEvent::execution_started(run_id.clone(), task_id.clone()))
+            .await
+            .is_err()
+        {
+            warn!("Failed to send ExecutionStarted event");
+        }
+
+        // Create SDK executor with bypass permissions
+        let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
+            .with_permission_mode(PermissionMode::BypassPermissions);
+
+        // Apply tool permissions from config
+        if let Some(ref allowed) = self.config.allowed_tools {
+            sdk_executor = sdk_executor.with_allowed_tools(allowed.clone());
+        }
+        if let Some(ref denied) = self.config.denied_tools {
+            sdk_executor = sdk_executor.with_disallowed_tools(denied.clone());
+        }
+
+        // Create streaming handler
+        let handler = Arc::new(StreamingHandler::new(
+            output_tx.clone(),
+            event_tx,
+            run_id,
+            task_id,
+        ));
+
+        // Execute follow-up via SDK
+        let working_dir = Path::new(&self.config.working_dir);
+        let result = sdk_executor
+            .execute_follow_up(working_dir, message, session_id, handler.clone())
+            .await
+            .map_err(|e| ExecutorError::SdkError(e.to_string()))?;
+
+        // Send final marker
+        let _ = output_tx
+            .send(OutputChunk {
+                content: String::new(),
+                is_final: true,
+            })
+            .await;
+
+        let new_session_id = handler.session_id();
+        let model_used = handler.model_used().unwrap_or(result.model_used);
+        info!(
+            session_id = ?new_session_id,
+            model = %model_used,
+            "Session continuation completed"
+        );
+
+        Ok(ExecutionResult {
+            model_used,
+            provider: "anthropic".to_string(),
+            session_id: new_session_id,
+        })
+    }
+
     /// Build the prompt for a given agent and input.
     fn build_prompt(&self, agent_name: &str, input_json: &str) -> Result<String, ExecutorError> {
         match agent_name {

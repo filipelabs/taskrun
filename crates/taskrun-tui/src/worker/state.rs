@@ -171,6 +171,7 @@ pub struct RunInfo {
     pub current_output: String,
     pub events: Vec<RunEventInfo>,
     pub queued_input: Option<String>,
+    pub session_id: Option<String>,
 }
 
 impl RunInfo {
@@ -189,6 +190,7 @@ impl RunInfo {
             current_output: String::new(),
             events: Vec::new(),
             queued_input: None,
+            session_id: None,
         }
     }
 

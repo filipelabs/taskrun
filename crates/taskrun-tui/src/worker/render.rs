@@ -354,6 +354,46 @@ fn render_chat_header(frame: &mut Frame, area: Rect, run: &super::state::RunInfo
     frame.render_widget(header, area);
 }
 
+/// Wrap text to fit within a given width.
+fn wrap_text(text: &str, width: usize, indent: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let effective_width = width.saturating_sub(indent.len());
+
+    if effective_width == 0 {
+        return vec![format!("{}{}", indent, text)];
+    }
+
+    for line in text.lines() {
+        if line.is_empty() {
+            lines.push(indent.to_string());
+            continue;
+        }
+
+        let mut remaining = line;
+        while !remaining.is_empty() {
+            if remaining.len() <= effective_width {
+                lines.push(format!("{}{}", indent, remaining));
+                break;
+            }
+
+            // Find a good break point (prefer space)
+            let break_at = remaining[..effective_width]
+                .rfind(' ')
+                .unwrap_or(effective_width);
+
+            let (chunk, rest) = remaining.split_at(break_at);
+            lines.push(format!("{}{}", indent, chunk.trim_end()));
+            remaining = rest.trim_start();
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(indent.to_string());
+    }
+
+    lines
+}
+
 /// Render chat messages.
 fn render_chat_messages(
     frame: &mut Frame,
@@ -369,6 +409,8 @@ fn render_chat_messages(
     };
 
     let visible_height = area.height.saturating_sub(2) as usize;
+    // Available width for text (minus borders)
+    let text_width = area.width.saturating_sub(2) as usize;
 
     // Build all message lines
     let mut all_lines: Vec<Line> = Vec::new();
@@ -388,9 +430,9 @@ fn render_chat_messages(
             ),
         ]));
 
-        // Add message content (wrap long lines)
-        for line in msg.content.lines() {
-            all_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        // Add message content with word wrapping
+        for wrapped_line in wrap_text(&msg.content, text_width, "  ") {
+            all_lines.push(Line::from(Span::raw(wrapped_line)));
         }
 
         // Add blank line between messages
@@ -403,8 +445,8 @@ fn render_chat_messages(
             Span::styled("AI: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("(streaming...)", Style::default().fg(Color::DarkGray)),
         ]));
-        for line in run.current_output.lines() {
-            all_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        for wrapped_line in wrap_text(&run.current_output, text_width, "  ") {
+            all_lines.push(Line::from(Span::raw(wrapped_line)));
         }
     }
 

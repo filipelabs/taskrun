@@ -49,6 +49,15 @@ pub enum WorkerUiEvent {
     StatsUpdated {
         active_runs: u32,
     },
+    /// Session ID captured for a run (enables continuation).
+    SessionCaptured {
+        run_id: String,
+        session_id: String,
+    },
+    /// A continuation turn completed (finalize output as assistant message).
+    TurnCompleted {
+        run_id: String,
+    },
     /// Request to quit.
     Quit,
 }
@@ -58,6 +67,12 @@ pub enum WorkerUiEvent {
 pub enum WorkerCommand {
     /// Force reconnection to control plane.
     ForceReconnect,
+    /// Continue a run with a follow-up message.
+    ContinueRun {
+        run_id: String,
+        session_id: String,
+        message: String,
+    },
     /// Quit the worker.
     Quit,
 }
