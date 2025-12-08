@@ -21,6 +21,7 @@ pub enum WorkerUiEvent {
         run_id: String,
         task_id: String,
         agent: String,
+        input: String,
     },
     /// Output from a run (streaming).
     RunProgress {
@@ -32,6 +33,12 @@ pub enum WorkerUiEvent {
         run_id: String,
         success: bool,
         error_message: Option<String>,
+    },
+    /// An event occurred during a run (tool use, execution lifecycle, etc).
+    RunEvent {
+        run_id: String,
+        event_type: String,
+        details: Option<String>,
     },
     /// Log message from the worker.
     LogMessage {

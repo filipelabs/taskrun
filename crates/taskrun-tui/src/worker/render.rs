@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs};
 use ratatui::Frame;
 
-use super::state::{ConnectionState, LogLevel, RunStatus, WorkerUiState, WorkerView};
+use super::state::{ChatRole, ConnectionState, DetailPane, LogLevel, RunStatus, WorkerUiState, WorkerView};
 
 /// Main render function for the worker TUI.
 pub fn render(frame: &mut Frame, state: &WorkerUiState) {
@@ -56,6 +56,7 @@ fn render_main_content(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
     match state.current_view {
         WorkerView::Status => render_status_view(frame, area, state),
         WorkerView::Runs => render_runs_view(frame, area, state),
+        WorkerView::RunDetail => render_run_detail_view(frame, area, state),
         WorkerView::Logs => render_logs_view(frame, area, state),
         WorkerView::Config => render_config_view(frame, area, state),
     }
@@ -269,6 +270,299 @@ fn render_runs_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
     frame.render_widget(table, area);
 }
 
+/// Render the run detail view as a chat interface.
+fn render_run_detail_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
+    let run = match state.get_viewing_run() {
+        Some(run) => run,
+        None => {
+            let empty = Paragraph::new("No run selected")
+                .style(Style::default().fg(Color::Gray))
+                .block(Block::default().borders(Borders::ALL).title(" Chat "));
+            frame.render_widget(empty, area);
+            return;
+        }
+    };
+
+    // Layout: header + chat/events split + input box
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Status header
+            Constraint::Min(0),    // Chat + events
+            Constraint::Length(3), // Input box
+        ])
+        .split(area);
+
+    // Render status header
+    render_chat_header(frame, chunks[0], run);
+
+    // Split chat and events
+    let content_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(70), // Chat (wider)
+            Constraint::Percentage(30), // Events
+        ])
+        .split(chunks[1]);
+
+    // Render chat messages
+    render_chat_messages(frame, content_chunks[0], run, state);
+
+    // Render events pane
+    render_events_pane(frame, content_chunks[1], run, state);
+
+    // Render input box
+    render_chat_input(frame, chunks[2], run, state);
+}
+
+/// Render the chat status header.
+fn render_chat_header(frame: &mut Frame, area: Rect, run: &super::state::RunInfo) {
+    let status_style = match run.status {
+        RunStatus::Running => Style::default().fg(Color::Yellow),
+        RunStatus::Completed => Style::default().fg(Color::Green),
+        RunStatus::Failed => Style::default().fg(Color::Red),
+    };
+    let status_str = match run.status {
+        RunStatus::Running => "● Running",
+        RunStatus::Completed => "✓ Completed",
+        RunStatus::Failed => "✗ Failed",
+    };
+
+    let duration = if let Some(completed) = run.completed_at {
+        let dur = completed.signed_duration_since(run.started_at);
+        format!("{}s", dur.num_seconds())
+    } else {
+        let dur = chrono::Utc::now().signed_duration_since(run.started_at);
+        format!("{}s", dur.num_seconds())
+    };
+
+    let header = Paragraph::new(Line::from(vec![
+        Span::styled(status_str, status_style),
+        Span::raw(" | "),
+        Span::raw("Agent: "),
+        Span::styled(&run.agent, Style::default().fg(Color::Cyan)),
+        Span::raw(" | "),
+        Span::styled(duration, Style::default().fg(Color::DarkGray)),
+        Span::raw(" | "),
+        Span::styled(
+            format!("{} messages", run.messages.len()),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]))
+    .block(Block::default().borders(Borders::ALL));
+
+    frame.render_widget(header, area);
+}
+
+/// Render chat messages.
+fn render_chat_messages(
+    frame: &mut Frame,
+    area: Rect,
+    run: &super::state::RunInfo,
+    state: &WorkerUiState,
+) {
+    let is_focused = state.detail_pane == DetailPane::Output && !state.input_focused;
+    let border_style = if is_focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let visible_height = area.height.saturating_sub(2) as usize;
+
+    // Build all message lines
+    let mut all_lines: Vec<Line> = Vec::new();
+
+    for msg in &run.messages {
+        let (prefix, style) = match msg.role {
+            ChatRole::User => ("You: ", Style::default().fg(Color::Green)),
+            ChatRole::Assistant => ("AI: ", Style::default().fg(Color::Cyan)),
+        };
+
+        // Add message header
+        all_lines.push(Line::from(vec![
+            Span::styled(prefix, style.add_modifier(Modifier::BOLD)),
+            Span::styled(
+                msg.timestamp.format("%H:%M:%S").to_string(),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+
+        // Add message content (wrap long lines)
+        for line in msg.content.lines() {
+            all_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        }
+
+        // Add blank line between messages
+        all_lines.push(Line::from(""));
+    }
+
+    // If there's streaming output, show it
+    if !run.current_output.is_empty() {
+        all_lines.push(Line::from(vec![
+            Span::styled("AI: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("(streaming...)", Style::default().fg(Color::DarkGray)),
+        ]));
+        for line in run.current_output.lines() {
+            all_lines.push(Line::from(Span::raw(format!("  {}", line))));
+        }
+    }
+
+    let total_lines = all_lines.len();
+
+    // Auto-scroll to bottom, or use manual scroll
+    let max_scroll = total_lines.saturating_sub(visible_height);
+    let scroll_offset = if state.chat_scroll == 0 {
+        max_scroll // Auto-scroll to bottom
+    } else {
+        state.chat_scroll.min(max_scroll)
+    };
+
+    let lines: Vec<Line> = all_lines
+        .into_iter()
+        .skip(scroll_offset)
+        .take(visible_height)
+        .collect();
+
+    let title = format!(" Chat [{}/{}] ", scroll_offset + visible_height.min(total_lines), total_lines);
+
+    let chat = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(title),
+    );
+
+    frame.render_widget(chat, area);
+}
+
+/// Render the chat input box.
+fn render_chat_input(
+    frame: &mut Frame,
+    area: Rect,
+    run: &super::state::RunInfo,
+    state: &WorkerUiState,
+) {
+    let border_style = if state.input_focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    // Show queued message or input prompt
+    let (title, content) = if let Some(ref queued) = run.queued_input {
+        (
+            " Queued (will send when run completes) ",
+            queued.clone(),
+        )
+    } else if run.status == RunStatus::Running {
+        (
+            " Type message (queued until run completes) ",
+            state.chat_input.clone(),
+        )
+    } else {
+        (
+            " Type message (Enter to send) ",
+            state.chat_input.clone(),
+        )
+    };
+
+    // Add cursor
+    let display_text = if state.input_focused && run.queued_input.is_none() {
+        let cursor_pos = state.chat_input_cursor.min(state.chat_input.len());
+        let (before, after) = state.chat_input.split_at(cursor_pos);
+        format!("{}│{}", before, after)
+    } else {
+        content.clone()
+    };
+
+    let input = Paragraph::new(display_text)
+        .style(if run.queued_input.is_some() {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(border_style)
+                .title(title),
+        );
+
+    frame.render_widget(input, area);
+}
+
+/// Render the events pane in run detail view.
+fn render_events_pane(
+    frame: &mut Frame,
+    area: Rect,
+    run: &super::state::RunInfo,
+    state: &WorkerUiState,
+) {
+    let is_focused = state.detail_pane == DetailPane::Events;
+    let border_style = if is_focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let visible_height = area.height.saturating_sub(2) as usize;
+    let total_events = run.events.len();
+
+    // Clamp scroll offset
+    let max_scroll = total_events.saturating_sub(visible_height);
+    let scroll_offset = state.events_scroll.min(max_scroll);
+
+    let items: Vec<ListItem> = run
+        .events
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_height)
+        .map(|event| {
+            let timestamp = event.timestamp.format("%H:%M:%S");
+            let event_style = match event.event_type.as_str() {
+                s if s.contains("Started") => Style::default().fg(Color::Green),
+                s if s.contains("Completed") => Style::default().fg(Color::Green),
+                s if s.contains("Failed") => Style::default().fg(Color::Red),
+                s if s.contains("Tool") => Style::default().fg(Color::Cyan),
+                _ => Style::default().fg(Color::White),
+            };
+
+            let mut spans = vec![
+                Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
+                Span::styled(&event.event_type, event_style),
+            ];
+
+            if let Some(ref details) = event.details {
+                spans.push(Span::raw(" → "));
+                spans.push(Span::styled(details, Style::default().fg(Color::Gray)));
+            }
+
+            ListItem::new(Line::from(spans))
+        })
+        .collect();
+
+    let title = if total_events > visible_height {
+        format!(
+            " Events [{}-{}/{}] ",
+            scroll_offset + 1,
+            (scroll_offset + visible_height).min(total_events),
+            total_events
+        )
+    } else {
+        format!(" Events [{} total] ", total_events)
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(title),
+    );
+
+    frame.render_widget(list, area);
+}
+
 /// Render the logs view.
 fn render_logs_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
     if state.log_messages.is_empty() {
@@ -400,7 +694,8 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
 
     let help = match state.current_view {
         WorkerView::Status => "[1-4] Views  [Tab] Next  [q] Quit",
-        WorkerView::Runs => "[j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit",
+        WorkerView::Runs => "[Enter] Join  [j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit",
+        WorkerView::RunDetail => "[Esc] Back  [Tab] Switch pane  [j/k] Scroll  [g/G] Top/Bottom",
         WorkerView::Logs => "[j/k] Scroll  [1-4] Views  [Tab] Next  [q] Quit",
         WorkerView::Config => "[1-4] Views  [Tab] Next  [q] Quit",
     };

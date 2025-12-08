@@ -3,7 +3,6 @@
 use std::error::Error;
 use std::time::Duration;
 
-use chrono::Utc;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
@@ -14,7 +13,7 @@ use super::event::{WorkerCommand, WorkerUiEvent};
 use super::render;
 use super::setup::{render_setup, SetupState};
 use super::state::{
-    ConnectionState, LogLevel, RunInfo, RunStatus, WorkerConfig, WorkerUiState, WorkerView,
+    ConnectionState, DetailPane, LogLevel, RunInfo, WorkerConfig, WorkerUiState, WorkerView,
 };
 
 
@@ -186,28 +185,33 @@ impl WorkerApp {
                 run_id,
                 task_id,
                 agent,
+                input,
             } => {
-                let run = RunInfo {
-                    run_id,
-                    task_id,
-                    agent,
-                    status: RunStatus::Running,
-                    started_at: Utc::now(),
-                    completed_at: None,
-                    output_preview: String::new(),
-                };
+                let run = RunInfo::new(run_id, task_id, agent, input);
                 self.state.add_run(run);
                 self.update_status();
             }
             WorkerUiEvent::RunProgress { run_id, output } => {
-                // Update the run's output preview
+                // Update the run's output (stored with 50KB cap)
                 if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
-                    // Append to output preview (keep last 500 chars)
-                    run.output_preview.push_str(&output);
-                    if run.output_preview.len() > 500 {
-                        let start = run.output_preview.len() - 500;
-                        run.output_preview = run.output_preview[start..].to_string();
-                    }
+                    run.append_output(&output);
+                }
+                // Also update completed runs (for viewing history)
+                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.append_output(&output);
+                }
+            }
+            WorkerUiEvent::RunEvent {
+                run_id,
+                event_type,
+                details,
+            } => {
+                // Add event to the run
+                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.add_event(event_type, details);
+                } else if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id)
+                {
+                    run.add_event(event_type, details);
                 }
             }
             WorkerUiEvent::RunCompleted {
@@ -215,6 +219,10 @@ impl WorkerApp {
                 success,
                 error_message,
             } => {
+                // Finalize streaming output as assistant message before completing
+                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.finalize_output();
+                }
                 self.state.complete_run(&run_id, success);
                 if let Some(error) = error_message {
                     self.state.add_log(LogLevel::Error, format!("Run {} failed: {}", run_id, error));
@@ -261,10 +269,21 @@ impl WorkerApp {
     ///
     /// Returns true if the app should quit.
     fn handle_key(&mut self, code: KeyCode) -> bool {
+        // Handle detail view specially
+        if self.state.current_view == WorkerView::RunDetail {
+            return self.handle_detail_key(code);
+        }
+
         match code {
             // Quit
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 return true;
+            }
+            KeyCode::Esc => {
+                // In Runs view, do nothing. Otherwise quit.
+                if self.state.current_view != WorkerView::Runs {
+                    return true;
+                }
             }
 
             // View switching with number keys
@@ -287,6 +306,13 @@ impl WorkerApp {
             }
             KeyCode::BackTab => {
                 self.state.current_view = self.state.current_view.prev();
+            }
+
+            // Enter to select run (enter detail view)
+            KeyCode::Enter => {
+                if self.state.current_view == WorkerView::Runs {
+                    self.state.enter_run_detail();
+                }
             }
 
             // Up/Down or j/k navigation
@@ -327,6 +353,198 @@ impl WorkerApp {
             KeyCode::Char('r') => {
                 if matches!(self.state.connection_state, ConnectionState::Disconnected { .. }) {
                     let _ = self.cmd_tx.blocking_send(WorkerCommand::ForceReconnect);
+                }
+            }
+
+            _ => {}
+        }
+        false
+    }
+
+    /// Handle key press in detail view.
+    fn handle_detail_key(&mut self, code: KeyCode) -> bool {
+        // When input is focused, handle text input first
+        if self.state.input_focused {
+            match code {
+                // Escape exits detail view
+                KeyCode::Esc => {
+                    self.state.exit_run_detail();
+                    return false;
+                }
+
+                // Enter queues the message
+                KeyCode::Enter => {
+                    self.state.queue_chat_message();
+                }
+
+                // Tab switches to events pane (unfocuses input)
+                KeyCode::Tab => {
+                    self.state.input_focused = false;
+                    self.state.detail_pane = DetailPane::Events;
+                }
+
+                // Character input
+                KeyCode::Char(c) => {
+                    self.state.chat_input.insert(self.state.chat_input_cursor, c);
+                    self.state.chat_input_cursor += 1;
+                }
+
+                // Backspace
+                KeyCode::Backspace => {
+                    if self.state.chat_input_cursor > 0 {
+                        self.state.chat_input_cursor -= 1;
+                        self.state.chat_input.remove(self.state.chat_input_cursor);
+                    }
+                }
+
+                // Delete
+                KeyCode::Delete => {
+                    if self.state.chat_input_cursor < self.state.chat_input.len() {
+                        self.state.chat_input.remove(self.state.chat_input_cursor);
+                    }
+                }
+
+                // Cursor movement
+                KeyCode::Left => {
+                    if self.state.chat_input_cursor > 0 {
+                        self.state.chat_input_cursor -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if self.state.chat_input_cursor < self.state.chat_input.len() {
+                        self.state.chat_input_cursor += 1;
+                    }
+                }
+                KeyCode::Home => {
+                    self.state.chat_input_cursor = 0;
+                }
+                KeyCode::End => {
+                    self.state.chat_input_cursor = self.state.chat_input.len();
+                }
+
+                // Up arrow scrolls chat
+                KeyCode::Up => {
+                    if self.state.chat_scroll > 0 {
+                        self.state.chat_scroll -= 1;
+                    }
+                }
+                // Down arrow scrolls chat
+                KeyCode::Down => {
+                    self.state.chat_scroll += 1;
+                }
+
+                // Page up/down for chat scroll
+                KeyCode::PageUp => {
+                    self.state.chat_scroll = self.state.chat_scroll.saturating_sub(10);
+                }
+                KeyCode::PageDown => {
+                    self.state.chat_scroll += 10;
+                }
+
+                _ => {}
+            }
+            return false;
+        }
+
+        // Input not focused - handle navigation
+        match code {
+            // Exit detail view
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.state.exit_run_detail();
+            }
+
+            // Switch pane / focus input
+            KeyCode::Tab => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.detail_pane = DetailPane::Events;
+                    }
+                    DetailPane::Events => {
+                        self.state.detail_pane = DetailPane::Output;
+                        self.state.input_focused = true;
+                    }
+                }
+            }
+
+            // Enter focuses input (or 'i' like vim)
+            KeyCode::Enter | KeyCode::Char('i') => {
+                self.state.detail_pane = DetailPane::Output;
+                self.state.input_focused = true;
+            }
+
+            // Scroll up
+            KeyCode::Up | KeyCode::Char('k') => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        if self.state.chat_scroll > 0 {
+                            self.state.chat_scroll -= 1;
+                        }
+                    }
+                    DetailPane::Events => {
+                        if self.state.events_scroll > 0 {
+                            self.state.events_scroll -= 1;
+                        }
+                    }
+                }
+            }
+
+            // Scroll down
+            KeyCode::Down | KeyCode::Char('j') => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.chat_scroll += 1;
+                    }
+                    DetailPane::Events => {
+                        self.state.events_scroll += 1;
+                    }
+                }
+            }
+
+            // Page up
+            KeyCode::PageUp => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_sub(20);
+                    }
+                    DetailPane::Events => {
+                        self.state.events_scroll = self.state.events_scroll.saturating_sub(20);
+                    }
+                }
+            }
+
+            // Page down
+            KeyCode::PageDown => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.chat_scroll += 20;
+                    }
+                    DetailPane::Events => {
+                        self.state.events_scroll += 20;
+                    }
+                }
+            }
+
+            // Home - scroll to top
+            KeyCode::Home | KeyCode::Char('g') => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.chat_scroll = 0;
+                    }
+                    DetailPane::Events => {
+                        self.state.events_scroll = 0;
+                    }
+                }
+            }
+
+            // End - scroll to bottom
+            KeyCode::End | KeyCode::Char('G') => {
+                match self.state.detail_pane {
+                    DetailPane::Output => {
+                        self.state.chat_scroll = usize::MAX / 2;
+                    }
+                    DetailPane::Events => {
+                        self.state.events_scroll = usize::MAX / 2;
+                    }
                 }
             }
 

@@ -255,6 +255,7 @@ impl WorkerConnection {
                             run_id: assignment.run_id.clone(),
                             task_id: assignment.task_id.clone(),
                             agent: assignment.agent_name.clone(),
+                            input: assignment.input_json.clone(),
                         })
                         .await;
 
@@ -338,10 +339,24 @@ async fn execute_real_run(
     // Create channel for events from executor
     let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
 
-    // Spawn event forwarder to send events via gRPC
+    // Spawn event forwarder to send events via gRPC and UI
     let event_tx_grpc = tx.clone();
+    let event_ui_tx = ui_tx.clone();
+    let event_run_id = run_id.clone();
     let event_handle = tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
+            // Forward to UI
+            let event_type = format!("{:?}", event.event_type);
+            let details = event.metadata.get("tool_name").cloned()
+                .or_else(|| event.metadata.get("error").cloned());
+            let _ = event_ui_tx
+                .send(WorkerUiEvent::RunEvent {
+                    run_id: event_run_id.clone(),
+                    event_type: event_type.clone(),
+                    details,
+                })
+                .await;
+            // Forward to gRPC
             send_event(&event_tx_grpc, event).await;
         }
     });
