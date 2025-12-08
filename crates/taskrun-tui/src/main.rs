@@ -96,6 +96,10 @@ enum Commands {
         /// Maximum concurrent runs
         #[arg(long, default_value = "10")]
         max_concurrent_runs: u32,
+
+        /// Working directory for the agent
+        #[arg(short = 'd', long, default_value = ".")]
+        working_dir: String,
     },
 }
 
@@ -140,7 +144,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             allow_tools,
             deny_tools,
             max_concurrent_runs,
+            working_dir,
         } => {
+            // Resolve working directory to absolute path
+            let working_dir = std::fs::canonicalize(&working_dir)
+                .unwrap_or_else(|_| std::path::PathBuf::from(&working_dir))
+                .to_string_lossy()
+                .to_string();
+
             let config = worker::WorkerConfig {
                 agent_name: agent,
                 model_name: model,
@@ -151,6 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 allowed_tools: allow_tools.map(|s| parse_tools(&s)),
                 denied_tools: deny_tools.map(|s| parse_tools(&s)),
                 max_concurrent_runs,
+                working_dir,
             };
             worker::run_worker_tui(config)?;
         }

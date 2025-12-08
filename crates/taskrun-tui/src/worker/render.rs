@@ -66,7 +66,7 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(10), // Worker info
+            Constraint::Length(11), // Worker info
             Constraint::Min(0),     // Stats
         ])
         .split(area);
@@ -105,6 +105,10 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
                 format!("{}/{}", provider, model),
                 Style::default().fg(Color::Cyan),
             ),
+        ]),
+        Line::from(vec![
+            Span::raw("Working Dir: "),
+            Span::styled(&state.config.working_dir, Style::default().fg(Color::Cyan)),
         ]),
         Line::from(vec![Span::raw("Connection:  "), connection_status]),
         Line::from(vec![
@@ -327,6 +331,10 @@ fn render_config_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
         Line::from(vec![
             Span::styled("Model Name:        ", Style::default().fg(Color::Gray)),
             Span::raw(model),
+        ]),
+        Line::from(vec![
+            Span::styled("Working Dir:       ", Style::default().fg(Color::Gray)),
+            Span::raw(&state.config.working_dir),
         ]),
         Line::from(vec![
             Span::styled("Control Plane:     ", Style::default().fg(Color::Gray)),

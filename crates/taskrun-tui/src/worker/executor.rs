@@ -344,9 +344,10 @@ impl ClaudeCodeExecutor {
             task_id,
         ));
 
-        // Execute via SDK
+        // Execute via SDK in the configured working directory
+        let working_dir = Path::new(&self.config.working_dir);
         let result = sdk_executor
-            .execute(Path::new("."), &prompt, handler.clone())
+            .execute(working_dir, &prompt, handler.clone())
             .await
             .map_err(|e| ExecutorError::SdkError(e.to_string()))?;
 

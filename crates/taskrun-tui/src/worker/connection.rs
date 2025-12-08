@@ -42,6 +42,7 @@ pub struct ConnectionConfig {
     pub allowed_tools: Option<Vec<String>>,
     pub denied_tools: Option<Vec<String>>,
     pub claude_path: String,
+    pub working_dir: String,
 }
 
 impl ConnectionConfig {
@@ -62,6 +63,7 @@ impl ConnectionConfig {
             allowed_tools: config.allowed_tools.clone(),
             denied_tools: config.denied_tools.clone(),
             claude_path: "claude".to_string(),
+            working_dir: config.working_dir.clone(),
         }
     }
 
