@@ -259,7 +259,7 @@ impl WorkerConnection {
         run_id: String,
         session_id: String,
         message: String,
-        _tx: mpsc::Sender<RunClientMessage>,
+        tx: mpsc::Sender<RunClientMessage>,
     ) {
         self.log(
             LogLevel::Info,
@@ -278,27 +278,36 @@ impl WorkerConnection {
         let (output_tx, mut output_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
         let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
 
-        // Spawn output forwarder to UI
+        // Spawn output forwarder to both UI and server
         let ui_tx_clone = self.ui_tx.clone();
+        let server_tx_clone = tx.clone();
         let run_id_clone = run_id.clone();
         let output_handle = tokio::spawn(async move {
+            let mut seq: u64 = 0;
             while let Some(chunk) = output_rx.recv().await {
                 if !chunk.content.is_empty() {
+                    // Send to UI
                     let _ = ui_tx_clone
                         .send(WorkerUiEvent::RunProgress {
                             run_id: run_id_clone.clone(),
-                            output: chunk.content,
+                            output: chunk.content.clone(),
                         })
                         .await;
+
+                    // Send to server
+                    send_output_chunk(&server_tx_clone, &run_id_clone, seq, chunk.content, false).await;
+                    seq += 1;
                 }
             }
         });
 
-        // Spawn event forwarder to UI
+        // Spawn event forwarder to both UI and server
         let ui_tx_clone2 = self.ui_tx.clone();
+        let server_tx_clone2 = tx.clone();
         let run_id_clone2 = run_id.clone();
         let event_handle = tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
+                // Send to UI
                 let _ = ui_tx_clone2
                     .send(WorkerUiEvent::RunEvent {
                         run_id: run_id_clone2.clone(),
@@ -306,6 +315,9 @@ impl WorkerConnection {
                         details: event.metadata.get("tool_name").cloned(),
                     })
                     .await;
+
+                // Send to server
+                send_event(&server_tx_clone2, event).await;
             }
         });
 
