@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use taskrun_core::{RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
+use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
 
 use crate::event::LogLevel;
 
@@ -84,6 +84,14 @@ pub struct LogEntry {
     pub message: String,
 }
 
+/// Chat message entry for display.
+#[derive(Debug, Clone)]
+pub struct ChatEntry {
+    pub timestamp: DateTime<Utc>,
+    pub role: ChatRole,
+    pub content: String,
+}
+
 /// Server status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
@@ -116,7 +124,10 @@ pub struct ServerUiState {
     // Run detail view
     pub viewing_task_id: Option<TaskId>,
     pub run_output: HashMap<RunId, String>,
+    pub run_chat: HashMap<RunId, Vec<ChatEntry>>, // Chat messages per run
     pub run_scroll: usize,
+    pub chat_input: String,        // Current chat input text
+    pub chat_input_cursor: usize,  // Cursor position in chat input
 
     // Logs view
     pub log_messages: VecDeque<LogEntry>,
@@ -159,7 +170,10 @@ impl ServerUiState {
 
             viewing_task_id: None,
             run_output: HashMap::new(),
+            run_chat: HashMap::new(),
             run_scroll: 0,
+            chat_input: String::new(),
+            chat_input_cursor: 0,
 
             log_messages: VecDeque::with_capacity(1000),
             log_scroll: 0,

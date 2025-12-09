@@ -11,12 +11,12 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
 use taskrun_core::{
-    RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo,
+    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo,
     WorkerStatus,
 };
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage, RunStatusUpdate,
+    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage, RunStatusUpdate,
     WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
@@ -89,6 +89,9 @@ impl RunService for RunServiceImpl {
                                 }
                                 ClientPayload::Event(event) => {
                                     handle_event(&state_clone, event).await;
+                                }
+                                ClientPayload::ChatMessage(chat_msg) => {
+                                    handle_chat_message(&state_clone, chat_msg).await;
                                 }
                             }
                         }
@@ -461,4 +464,71 @@ async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
 
     // Store the event
     state.store_event(event).await;
+}
+
+async fn handle_chat_message(state: &Arc<AppState>, chat_msg: RunChatMessage) {
+    let run_id = RunId::new(&chat_msg.run_id);
+
+    // Parse the message if present
+    let proto_msg = match chat_msg.message {
+        Some(msg) => msg,
+        None => {
+            warn!(run_id = %chat_msg.run_id, "Chat message received without content");
+            return;
+        }
+    };
+
+    // Convert proto role to domain role
+    let role = match taskrun_proto::pb::ChatRole::try_from(proto_msg.role) {
+        Ok(taskrun_proto::pb::ChatRole::User) => ChatRole::User,
+        Ok(taskrun_proto::pb::ChatRole::Assistant) => ChatRole::Assistant,
+        Ok(taskrun_proto::pb::ChatRole::System) => ChatRole::System,
+        _ => {
+            warn!(run_id = %chat_msg.run_id, role = proto_msg.role, "Unknown chat role");
+            return;
+        }
+    };
+
+    // Find task_id for this run
+    let task_id = {
+        let tasks = state.tasks.read().await;
+        tasks
+            .values()
+            .find(|t| t.runs.iter().any(|r| r.run_id == run_id))
+            .map(|t| t.id.clone())
+    };
+
+    let task_id = match task_id {
+        Some(id) => id,
+        None => {
+            warn!(run_id = %chat_msg.run_id, "Chat message for unknown run");
+            return;
+        }
+    };
+
+    info!(
+        run_id = %chat_msg.run_id,
+        task_id = %task_id,
+        role = ?role,
+        content_len = proto_msg.content.len(),
+        "Chat message received"
+    );
+
+    // Create domain chat message
+    let message = ChatMessage {
+        role,
+        content: proto_msg.content.clone(),
+        timestamp_ms: proto_msg.timestamp_ms,
+    };
+
+    // Store the message
+    state.store_chat_message(&run_id, message).await;
+
+    // Notify UI
+    state.notify_ui(UiNotification::ChatMessage {
+        run_id,
+        task_id,
+        role,
+        content: proto_msg.content,
+    });
 }

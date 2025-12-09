@@ -7,6 +7,7 @@
 //!
 //! All types here represent the core business domain of TaskRun.
 
+pub mod chat;
 pub mod error;
 pub mod event;
 pub mod ids;
@@ -16,6 +17,7 @@ pub mod task;
 pub mod worker;
 
 // Re-export commonly used types
+pub use chat::{ChatMessage, ChatRole};
 pub use error::CoreError;
 pub use event::{RunEvent, RunEventType};
 pub use ids::{EventId, RunId, TaskId, WorkerId};

@@ -262,6 +262,15 @@ impl WorkerApp {
                     run.finalize_output();
                 }
             }
+            WorkerUiEvent::UserMessageAdded { run_id, message } => {
+                // Add user message to the run's chat history
+                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.add_user_message(message.clone());
+                }
+                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                    run.add_user_message(message);
+                }
+            }
             WorkerUiEvent::Quit => {
                 return true;
             }

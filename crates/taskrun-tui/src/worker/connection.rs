@@ -17,8 +17,9 @@ use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerId, W
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    CreateTaskRequest, RunAssignment, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk,
-    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
+    ChatMessage as ProtoChatMessage, ChatRole as ProtoChatRole, CreateTaskRequest, RunAssignment,
+    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunStatusUpdate,
+    WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunServiceClient, TaskServiceClient};
 
@@ -87,7 +88,7 @@ pub struct WorkerConnection {
     executor: Arc<ClaudeCodeExecutor>,
     ui_tx: mpsc::Sender<WorkerUiEvent>,
     /// Session IDs for each run (for continuation support).
-    sessions: HashMap<String, String>,
+    sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
 }
 
 #[allow(dead_code)] // worker_id is for API completeness
@@ -102,7 +103,7 @@ impl WorkerConnection {
             active_run_count: Arc::new(AtomicU32::new(0)),
             executor,
             ui_tx,
-            sessions: HashMap::new(),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -194,7 +195,7 @@ impl WorkerConnection {
                 result = inbound.next() => {
                     match result {
                         Some(Ok(msg)) => {
-                            self.handle_server_message(msg).await;
+                            self.handle_server_message(msg, tx.clone()).await;
                         }
                         Some(Err(e)) => {
                             self.log(LogLevel::Warn, format!("Stream error: {}", e));
@@ -266,7 +267,10 @@ impl WorkerConnection {
             format!("Continuing run {} with session {}", run_id, &session_id[..8.min(session_id.len())]),
         );
 
-        // Notify UI that run is active again (add user message to chat)
+        // Send user message to server as ChatMessage
+        send_chat_message(&tx, &run_id, ProtoChatRole::User, message.clone()).await;
+
+        // Notify UI that run is active again
         let _ = self.ui_tx
             .send(WorkerUiEvent::RunProgress {
                 run_id: run_id.clone(),
@@ -278,15 +282,14 @@ impl WorkerConnection {
         let (output_tx, mut output_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
         let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
 
-        // Spawn output forwarder to both UI and server
+        // Spawn output forwarder to UI, accumulate for server ChatMessage
         let ui_tx_clone = self.ui_tx.clone();
-        let server_tx_clone = tx.clone();
         let run_id_clone = run_id.clone();
         let output_handle = tokio::spawn(async move {
-            let mut seq: u64 = 0;
+            let mut accumulated_output = String::new();
             while let Some(chunk) = output_rx.recv().await {
                 if !chunk.content.is_empty() {
-                    // Send to UI
+                    // Send to UI for real-time streaming
                     let _ = ui_tx_clone
                         .send(WorkerUiEvent::RunProgress {
                             run_id: run_id_clone.clone(),
@@ -294,11 +297,11 @@ impl WorkerConnection {
                         })
                         .await;
 
-                    // Send to server
-                    send_output_chunk(&server_tx_clone, &run_id_clone, seq, chunk.content, false).await;
-                    seq += 1;
+                    // Accumulate for final assistant message
+                    accumulated_output.push_str(&chunk.content);
                 }
             }
+            accumulated_output
         });
 
         // Spawn event forwarder to both UI and server
@@ -339,8 +342,13 @@ impl WorkerConnection {
             .await;
 
         // Wait for handlers
-        let _ = output_handle.await;
+        let accumulated_output = output_handle.await.unwrap_or_default();
         let _ = event_handle.await;
+
+        // Send accumulated assistant output as a single ChatMessage
+        if !accumulated_output.is_empty() {
+            send_chat_message(&tx, &run_id, ProtoChatRole::Assistant, accumulated_output).await;
+        }
 
         match result {
             Ok(exec_result) => {
@@ -453,7 +461,7 @@ impl WorkerConnection {
             .with_label("env", "development")
     }
 
-    async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage) {
+    async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage, tx: mpsc::Sender<RunClientMessage>) {
         if let Some(payload) = msg.payload {
             match payload {
                 ServerPayload::AssignRun(assignment) => {
@@ -477,16 +485,14 @@ impl WorkerConnection {
                         .await;
 
                     // Spawn real execution via Claude Code
-                    if let Some(tx) = &self.outbound_tx {
-                        let tx = tx.clone();
-                        let active_count = self.active_run_count.clone();
-                        let executor = self.executor.clone();
-                        let ui_tx = self.ui_tx.clone();
+                    let active_count = self.active_run_count.clone();
+                    let executor = self.executor.clone();
+                    let ui_tx = self.ui_tx.clone();
+                    let sessions = self.sessions.clone();
 
-                        tokio::spawn(async move {
-                            execute_real_run(executor, tx, assignment, active_count, ui_tx).await;
-                        });
-                    }
+                    tokio::spawn(async move {
+                        execute_real_run(executor, tx, assignment, active_count, ui_tx, sessions).await;
+                    });
                 }
                 ServerPayload::CancelRun(cancel) => {
                     self.log(
@@ -502,6 +508,47 @@ impl WorkerConnection {
                         LogLevel::Debug,
                         format!("Received ack: type={}, ref_id={}", ack.ack_type, ack.ref_id),
                     );
+                }
+                ServerPayload::ContinueRun(continue_run) => {
+                    self.log(
+                        LogLevel::Info,
+                        format!(
+                            "Received continue request: run_id={}",
+                            &continue_run.run_id[..8.min(continue_run.run_id.len())]
+                        ),
+                    );
+
+                    // Add the user message to the UI chat history
+                    let _ = self.ui_tx
+                        .send(WorkerUiEvent::UserMessageAdded {
+                            run_id: continue_run.run_id.clone(),
+                            message: continue_run.message.clone(),
+                        })
+                        .await;
+
+                    // Look up session ID for this run
+                    let session_id = {
+                        let sessions = self.sessions.lock().await;
+                        sessions.get(&continue_run.run_id).cloned()
+                    };
+
+                    match session_id {
+                        Some(session_id) => {
+                            // Call handle_continue_run
+                            self.handle_continue_run(
+                                continue_run.run_id,
+                                session_id,
+                                continue_run.message,
+                                tx,
+                            ).await;
+                        }
+                        None => {
+                            self.log(
+                                LogLevel::Error,
+                                format!("No session found for run {}", &continue_run.run_id[..8.min(continue_run.run_id.len())]),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -537,6 +584,7 @@ async fn execute_real_run(
     assignment: RunAssignment,
     active_count: Arc<AtomicU32>,
     ui_tx: mpsc::Sender<WorkerUiEvent>,
+    sessions: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
 ) {
     let run_id = assignment.run_id.clone();
     let task_id = assignment.task_id.clone();
@@ -546,6 +594,18 @@ async fn execute_real_run(
     let _ = ui_tx.send(WorkerUiEvent::StatsUpdated { active_runs: count }).await;
 
     info!(run_id = %run_id, agent = %assignment.agent_name, "Starting real execution via Claude Code");
+
+    // Send the initial user message (input_json) as a ChatMessage
+    // Extract prompt from input_json if possible, otherwise use the raw JSON
+    let user_message = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&assignment.input_json) {
+        parsed.get("prompt")
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| assignment.input_json.clone())
+    } else {
+        assignment.input_json.clone()
+    };
+    send_chat_message(&tx, &run_id, ProtoChatRole::User, user_message).await;
 
     // Send RUNNING status
     send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
@@ -578,41 +638,25 @@ async fn execute_real_run(
         }
     });
 
-    // Spawn output forwarder to UI
+    // Spawn output forwarder to UI (accumulates for assistant ChatMessage)
     let ui_tx_output = ui_tx.clone();
     let run_id_output = run_id.clone();
     let output_handle = tokio::spawn(async move {
-        let mut seq = 0u64;
+        let mut accumulated_output = String::new();
         while let Some(chunk) = chunk_rx.recv().await {
             if !chunk.is_final && !chunk.content.is_empty() {
-                // Send to UI
+                // Send to UI for real-time streaming
                 let _ = ui_tx_output
                     .send(WorkerUiEvent::RunProgress {
                         run_id: run_id_output.clone(),
                         output: chunk.content.clone(),
                     })
                     .await;
-                seq += 1;
+                // Accumulate for final assistant message
+                accumulated_output.push_str(&chunk.content);
             }
         }
-        seq
-    });
-
-    // Create separate chunk channel for gRPC streaming
-    let (grpc_chunk_tx, mut grpc_chunk_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
-
-    // Spawn gRPC output streamer
-    let grpc_tx = tx.clone();
-    let run_id_grpc = run_id.clone();
-    let grpc_handle = tokio::spawn(async move {
-        let mut seq = 0u64;
-        while let Some(chunk) = grpc_chunk_rx.recv().await {
-            if !chunk.is_final && !chunk.content.is_empty() {
-                send_output_chunk(&grpc_tx, &run_id_grpc, seq, chunk.content, false).await;
-                seq += 1;
-            }
-        }
-        seq
+        accumulated_output
     });
 
     // Execute
@@ -622,22 +666,11 @@ async fn execute_real_run(
     let run_id_clone = RunId::new(&run_id);
     let task_id_clone = TaskId::new(&task_id);
 
-    // Create a forking sender that sends to both UI and gRPC
-    let (fork_tx, mut fork_rx) = mpsc::channel::<super::executor::OutputChunk>(32);
-    let chunk_tx_clone = chunk_tx;
-    let grpc_chunk_tx_clone = grpc_chunk_tx;
-    let fork_handle = tokio::spawn(async move {
-        while let Some(chunk) = fork_rx.recv().await {
-            let _ = chunk_tx_clone.send(chunk.clone()).await;
-            let _ = grpc_chunk_tx_clone.send(chunk).await;
-        }
-    });
-
     let result = executor_clone
         .execute(
             &agent_name,
             &input_json,
-            fork_tx,
+            chunk_tx,
             event_tx,
             run_id_clone,
             task_id_clone,
@@ -645,16 +678,16 @@ async fn execute_real_run(
         .await;
 
     // Wait for all handlers
-    let _ = output_handle.await;
-    let seq = grpc_handle.await.unwrap_or(0);
+    let accumulated_output = output_handle.await.unwrap_or_default();
     let _ = event_handle.await;
-    let _ = fork_handle.await;
+
+    // Send accumulated assistant output as a single ChatMessage
+    if !accumulated_output.is_empty() {
+        send_chat_message(&tx, &run_id, ProtoChatRole::Assistant, accumulated_output).await;
+    }
 
     match result {
         Ok(exec_result) => {
-            // Send final chunk
-            send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
-
             // Build the backend info that was used
             let backend_used = taskrun_proto::pb::ModelBackend {
                 provider: exec_result.provider,
@@ -677,6 +710,12 @@ async fn execute_real_run(
 
             // Send SessionCaptured event if we have a session_id (enables continuation)
             if let Some(session_id) = &exec_result.session_id {
+                // Store session ID for server-initiated continuations
+                {
+                    let mut sessions_guard = sessions.lock().await;
+                    sessions_guard.insert(run_id.clone(), session_id.clone());
+                }
+
                 let _ = ui_tx
                     .send(WorkerUiEvent::SessionCaptured {
                         run_id: run_id.clone(),
@@ -772,29 +811,28 @@ async fn send_status_update_with_error(
     }
 }
 
-/// Send an output chunk to the control plane.
-async fn send_output_chunk(
+/// Send a chat message to the control plane.
+async fn send_chat_message(
     tx: &mpsc::Sender<RunClientMessage>,
     run_id: &str,
-    seq: u64,
+    role: ProtoChatRole,
     content: String,
-    is_final: bool,
 ) {
-    let chunk = RunOutputChunk {
+    let chat_msg = RunChatMessage {
         run_id: run_id.to_string(),
-        seq,
-        content,
-        is_final,
-        metadata: HashMap::new(),
-        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        message: Some(ProtoChatMessage {
+            role: role as i32,
+            content,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        }),
     };
 
     let msg = RunClientMessage {
-        payload: Some(ClientPayload::OutputChunk(chunk)),
+        payload: Some(ClientPayload::ChatMessage(chat_msg)),
     };
 
     if tx.send(msg).await.is_err() {
-        warn!(run_id = %run_id, seq = seq, "Failed to send output chunk");
+        warn!(run_id = %run_id, "Failed to send chat message");
     }
 }
 

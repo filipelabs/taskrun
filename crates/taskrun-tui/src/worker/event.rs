@@ -58,6 +58,11 @@ pub enum WorkerUiEvent {
     TurnCompleted {
         run_id: String,
     },
+    /// A user message was added to a run (from server or local input).
+    UserMessageAdded {
+        run_id: String,
+        message: String,
+    },
     /// Request to quit.
     Quit,
 }

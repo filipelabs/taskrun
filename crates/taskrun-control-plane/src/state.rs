@@ -6,7 +6,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::{broadcast, mpsc, RwLock};
 
-use taskrun_core::{RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
 use crate::crypto::{BootstrapToken, CertificateAuthority};
@@ -63,6 +63,13 @@ pub enum UiNotification {
         run_id: RunId,
         task_id: TaskId,
         event_type: RunEventType,
+    },
+    /// Chat message received (user or assistant message in conversation).
+    ChatMessage {
+        run_id: RunId,
+        task_id: TaskId,
+        role: ChatRole,
+        content: String,
     },
 }
 
@@ -135,6 +142,9 @@ pub struct AppState {
     /// Run output indexed by RunId (accumulated content from output chunks).
     pub outputs: RwLock<HashMap<RunId, String>>,
 
+    /// Chat messages indexed by RunId (conversation history).
+    pub chat_messages: RwLock<HashMap<RunId, Vec<ChatMessage>>>,
+
     /// Broadcast channels for streaming run output, indexed by RunId.
     /// Created when a streaming client subscribes.
     pub stream_channels: RwLock<HashMap<RunId, StreamSender>>,
@@ -157,6 +167,7 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
@@ -171,6 +182,7 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: Some(ca),
@@ -187,6 +199,7 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca,
@@ -274,6 +287,42 @@ impl AppState {
     }
 
     // ========================================================================
+    // Chat Message Methods
+    // ========================================================================
+
+    /// Store a chat message for a run.
+    pub async fn store_chat_message(&self, run_id: &RunId, message: ChatMessage) {
+        let mut messages = self.chat_messages.write().await;
+        messages.entry(run_id.clone()).or_default().push(message);
+    }
+
+    /// Get all chat messages for a run.
+    #[allow(dead_code)]
+    pub async fn get_chat_messages(&self, run_id: &RunId) -> Vec<ChatMessage> {
+        let messages = self.chat_messages.read().await;
+        messages.get(run_id).cloned().unwrap_or_default()
+    }
+
+    /// Get chat messages for a task (across all runs, combined).
+    #[allow(dead_code)]
+    pub async fn get_chat_messages_by_task(&self, task_id: &TaskId) -> Vec<ChatMessage> {
+        let tasks = self.tasks.read().await;
+        if let Some(task) = tasks.get(task_id) {
+            let messages = self.chat_messages.read().await;
+            let mut result = Vec::new();
+            for run in &task.runs {
+                if let Some(run_messages) = messages.get(&run.run_id) {
+                    result.extend(run_messages.iter().cloned());
+                }
+            }
+            // Sort by timestamp
+            result.sort_by_key(|m| m.timestamp_ms);
+            return result;
+        }
+        Vec::new()
+    }
+
+    // ========================================================================
     // Streaming Methods
     // ========================================================================
 
@@ -324,6 +373,7 @@ impl Default for AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,

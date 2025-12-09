@@ -132,6 +132,17 @@ impl ServerApp {
                     .or_default()
                     .push_str(&content);
             }
+            ServerUiEvent::ChatMessage { run_id, role, content, .. } => {
+                use crate::state::ChatEntry;
+                self.state.run_chat
+                    .entry(run_id)
+                    .or_default()
+                    .push(ChatEntry {
+                        timestamp: chrono::Utc::now(),
+                        role,
+                        content,
+                    });
+            }
             ServerUiEvent::LogMessage { level, message } => {
                 self.state.add_log(level, message);
             }
@@ -157,17 +168,16 @@ impl ServerApp {
             return;
         }
 
-        // Global keys
+        // Run detail view has special handling - chat input is always active
+        if self.state.current_view == ServerView::RunDetail {
+            self.handle_run_detail_key(code, modifiers);
+            return;
+        }
+
+        // Global keys for other views
         match code {
             KeyCode::Char('q') | KeyCode::Esc => {
-                if self.state.current_view == ServerView::RunDetail {
-                    // Go back to tasks view
-                    self.state.current_view = ServerView::Tasks;
-                    self.state.viewing_task_id = None;
-                    self.state.run_scroll = 0;
-                } else {
-                    self.state.show_quit_confirm = true;
-                }
+                self.state.show_quit_confirm = true;
             }
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.state.show_quit_confirm = true;
@@ -176,14 +186,10 @@ impl ServerApp {
             KeyCode::Char('2') => self.state.current_view = ServerView::Tasks,
             KeyCode::Char('3') => self.state.current_view = ServerView::Logs,
             KeyCode::Tab => {
-                if self.state.current_view != ServerView::RunDetail {
-                    self.state.current_view = self.state.current_view.next();
-                }
+                self.state.current_view = self.state.current_view.next();
             }
             KeyCode::BackTab => {
-                if self.state.current_view != ServerView::RunDetail {
-                    self.state.current_view = self.state.current_view.prev();
-                }
+                self.state.current_view = self.state.current_view.prev();
             }
             _ => {
                 // View-specific keys
@@ -191,7 +197,7 @@ impl ServerApp {
                     ServerView::Workers => self.handle_workers_key(code),
                     ServerView::Tasks => self.handle_tasks_key(code),
                     ServerView::Logs => self.handle_logs_key(code),
-                    ServerView::RunDetail => self.handle_run_detail_key(code),
+                    ServerView::RunDetail => unreachable!(),
                 }
             }
         }
@@ -292,23 +298,108 @@ impl ServerApp {
         }
     }
 
-    fn handle_run_detail_key(&mut self, code: KeyCode) {
+    fn handle_run_detail_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // Chat input is always active in run detail view
         match code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                // Disable auto-scroll when manually scrolling
-                if self.state.run_scroll == usize::MAX {
-                    self.state.run_scroll = 0;
-                }
-                self.state.run_scroll = self.state.run_scroll.saturating_add(1);
+            // Esc goes back to tasks view
+            KeyCode::Esc => {
+                self.state.viewing_task_id = None;
+                self.state.current_view = ServerView::Tasks;
+                self.state.chat_input.clear();
+                self.state.chat_input_cursor = 0;
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            // Enter sends the message
+            KeyCode::Enter => {
+                if !self.state.chat_input.is_empty() {
+                    if let Some(task) = self.state.get_viewing_task() {
+                        if let Some(run_id) = &task.latest_run_id {
+                            let _ = self.cmd_tx.blocking_send(ServerCommand::SendChatMessage {
+                                run_id: run_id.clone(),
+                                message: self.state.chat_input.clone(),
+                            });
+                        }
+                    }
+                    self.state.chat_input.clear();
+                    self.state.chat_input_cursor = 0;
+                }
+            }
+            // Navigation with Ctrl modifier for scrolling
+            KeyCode::Up if modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.state.run_scroll == usize::MAX {
                     self.state.run_scroll = 0;
                 }
                 self.state.run_scroll = self.state.run_scroll.saturating_sub(1);
             }
-            KeyCode::Char('g') => self.state.run_scroll = 0,
-            KeyCode::Char('G') => self.state.run_scroll = usize::MAX, // Auto-scroll to bottom
+            KeyCode::Down if modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.state.run_scroll == usize::MAX {
+                    self.state.run_scroll = 0;
+                }
+                self.state.run_scroll = self.state.run_scroll.saturating_add(1);
+            }
+            // PageUp/PageDown for scrolling
+            KeyCode::PageUp => {
+                if self.state.run_scroll == usize::MAX {
+                    self.state.run_scroll = 0;
+                }
+                self.state.run_scroll = self.state.run_scroll.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                self.state.run_scroll = self.state.run_scroll.saturating_add(10);
+            }
+            // Home/End for start/end of input
+            KeyCode::Home if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.state.run_scroll = 0;
+            }
+            KeyCode::End if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.state.run_scroll = usize::MAX; // Auto-scroll to bottom
+            }
+            KeyCode::Home => {
+                self.state.chat_input_cursor = 0;
+            }
+            KeyCode::End => {
+                self.state.chat_input_cursor = self.state.chat_input.chars().count();
+            }
+            // Character input
+            KeyCode::Char(c) => {
+                let byte_pos = self.state.chat_input
+                    .char_indices()
+                    .nth(self.state.chat_input_cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(self.state.chat_input.len());
+                self.state.chat_input.insert(byte_pos, c);
+                self.state.chat_input_cursor += 1;
+            }
+            KeyCode::Backspace => {
+                if self.state.chat_input_cursor > 0 {
+                    let char_count = self.state.chat_input.chars().count();
+                    if self.state.chat_input_cursor <= char_count {
+                        let byte_pos = self.state.chat_input
+                            .char_indices()
+                            .nth(self.state.chat_input_cursor - 1)
+                            .map(|(i, _)| i);
+                        if let Some(start) = byte_pos {
+                            let end = self.state.chat_input
+                                .char_indices()
+                                .nth(self.state.chat_input_cursor)
+                                .map(|(i, _)| i)
+                                .unwrap_or(self.state.chat_input.len());
+                            self.state.chat_input.replace_range(start..end, "");
+                            self.state.chat_input_cursor -= 1;
+                        }
+                    }
+                }
+            }
+            KeyCode::Left => {
+                if self.state.chat_input_cursor > 0 {
+                    self.state.chat_input_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let char_count = self.state.chat_input.chars().count();
+                if self.state.chat_input_cursor < char_count {
+                    self.state.chat_input_cursor += 1;
+                }
+            }
             _ => {}
         }
     }

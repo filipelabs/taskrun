@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 use taskrun_control_plane::crypto::CertificateAuthority;
 use taskrun_control_plane::state::{AppState, UiNotification};
 use taskrun_control_plane::{http, RunServiceImpl, Scheduler, TaskServiceImpl, WorkerServiceImpl};
-use taskrun_core::{Task, TaskId, TaskStatus};
+use taskrun_core::{RunId, Task, TaskId, TaskStatus};
 
 use crate::event::{LogLevel, ServerCommand, ServerUiEvent};
 
@@ -212,6 +212,9 @@ async fn handle_commands(
             ServerCommand::DisconnectWorker { worker_id } => {
                 handle_disconnect_worker(&state, &ui_tx, worker_id).await;
             }
+            ServerCommand::SendChatMessage { run_id, message } => {
+                handle_send_chat_message(&state, &ui_tx, run_id, message).await;
+            }
         }
     }
 }
@@ -354,6 +357,17 @@ async fn forward_notifications(
                         // Skip run events for now - we can add them later if needed
                         continue;
                     }
+                    UiNotification::ChatMessage {
+                        run_id,
+                        task_id,
+                        role,
+                        content,
+                    } => ServerUiEvent::ChatMessage {
+                        run_id,
+                        task_id,
+                        role,
+                        content,
+                    },
                 };
 
                 if tx.send(event).await.is_err() {
@@ -539,6 +553,79 @@ async fn handle_disconnect_worker(
             ui_tx,
             LogLevel::Warn,
             format!("Worker not found: {}", worker_id),
+        )
+        .await;
+    }
+}
+
+async fn handle_send_chat_message(
+    state: &Arc<AppState>,
+    ui_tx: &mpsc::Sender<ServerUiEvent>,
+    run_id: RunId,
+    message: String,
+) {
+    use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
+    use taskrun_proto::pb::{ContinueRun, RunServerMessage};
+
+    // Find the worker handling this run
+    let worker_id = {
+        let tasks = state.tasks.read().await;
+        tasks
+            .values()
+            .find_map(|t| {
+                t.runs
+                    .iter()
+                    .find(|r| r.run_id == run_id)
+                    .map(|r| r.worker_id.clone())
+            })
+    };
+
+    let worker_id = match worker_id {
+        Some(id) => id,
+        None => {
+            log_to_ui(
+                ui_tx,
+                LogLevel::Error,
+                format!("Run not found: {}", run_id),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Send ContinueRun message to worker
+    let workers = state.workers.read().await;
+    if let Some(worker) = workers.get(&worker_id) {
+        let continue_msg = RunServerMessage {
+            payload: Some(ServerPayload::ContinueRun(ContinueRun {
+                run_id: run_id.to_string(),
+                message: message.clone(),
+                timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            })),
+        };
+
+        if let Err(e) = worker.tx.send(continue_msg).await {
+            log_to_ui(
+                ui_tx,
+                LogLevel::Error,
+                format!("Failed to send message to worker: {}", e),
+            )
+            .await;
+            return;
+        }
+
+        log_to_ui(
+            ui_tx,
+            LogLevel::Info,
+            format!("Sent message to run {}", &run_id.to_string()[..8]),
+        )
+        .await;
+        // Note: The worker will send the user message back as a ChatMessage via gRPC
+    } else {
+        log_to_ui(
+            ui_tx,
+            LogLevel::Error,
+            format!("Worker {} not connected", worker_id),
         )
         .await;
     }

@@ -1,6 +1,7 @@
 //! Server TUI events and commands.
 
-use taskrun_core::{RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
+use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
+use taskrun_proto::pb::RunServerMessage;
 
 /// Events sent from backend to UI.
 #[derive(Debug, Clone)]
@@ -61,6 +62,14 @@ pub enum ServerUiEvent {
         content: String,
     },
 
+    /// Chat message (user or assistant message in conversation).
+    ChatMessage {
+        run_id: RunId,
+        task_id: TaskId,
+        role: ChatRole,
+        content: String,
+    },
+
     /// Log message.
     LogMessage {
         level: LogLevel,
@@ -69,7 +78,6 @@ pub enum ServerUiEvent {
 }
 
 /// Commands sent from UI to backend.
-#[derive(Debug)]
 pub enum ServerCommand {
     /// Create a new task.
     CreateTask {
@@ -87,8 +95,20 @@ pub enum ServerCommand {
         worker_id: WorkerId,
     },
 
+    /// Send a chat message to a run (forwarded to worker).
+    SendChatMessage {
+        run_id: RunId,
+        message: String,
+    },
+
     /// Shutdown the server.
     Shutdown,
+}
+
+/// A message to send to a specific worker.
+pub struct WorkerMessage {
+    pub worker_id: WorkerId,
+    pub message: RunServerMessage,
 }
 
 /// Log level for UI messages.
