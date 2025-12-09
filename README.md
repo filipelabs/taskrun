@@ -40,14 +40,14 @@ This creates:
 
 ### Run
 
-**Terminal 1 - Start control plane:**
+**Terminal 1 - Start server (with TUI):**
 ```bash
-RUST_LOG=info cargo run -p taskrun-control-plane
+cargo run -p taskrun-server
 ```
 
-**Terminal 2 - Start worker:**
+**Terminal 2 - Start worker (with TUI):**
 ```bash
-RUST_LOG=info cargo run -p taskrun-worker
+cargo run -p taskrun-worker
 ```
 
 **Terminal 3 - Test with HTTP API:**
