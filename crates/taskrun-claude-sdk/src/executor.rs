@@ -217,6 +217,13 @@ impl ClaudeExecutor {
             cmd.arg("--disallowedTools").arg(tool);
         }
 
+        // Permission mode
+        if self.permission_mode == PermissionMode::BypassPermissions {
+            cmd.arg("--dangerously-skip-permissions");
+            cmd.env("CLAUDE_CODE_ALLOW_DANGEROUSLY_SKIP_PERMISSIONS", "true");
+            info!("Using --dangerously-skip-permissions flag");
+        }
+
         // Session continuation (--resume for specific session ID)
         if let Some(sid) = session_id {
             cmd.arg("--resume").arg(sid);
