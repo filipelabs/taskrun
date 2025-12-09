@@ -163,6 +163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 denied_tools: deny_tools.map(|s| parse_tools(&s)),
                 max_concurrent_runs,
                 working_dir,
+                skip_permissions: true, // Default to true, can be changed in setup UI
             };
             worker::run_worker_tui(config)?;
         }

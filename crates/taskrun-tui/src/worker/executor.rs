@@ -322,9 +322,14 @@ impl ClaudeCodeExecutor {
         info!(agent = %agent_name, "Creating Claude Code SDK executor");
         debug!(prompt = %prompt, "Full prompt");
 
-        // Create SDK executor with bypass permissions (auto-approve all)
+        // Create SDK executor with permission mode based on config
+        let permission_mode = if self.config.skip_permissions {
+            PermissionMode::BypassPermissions
+        } else {
+            PermissionMode::Default
+        };
         let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
-            .with_permission_mode(PermissionMode::BypassPermissions);
+            .with_permission_mode(permission_mode);
 
         // Apply tool permissions from config
         if let Some(ref allowed) = self.config.allowed_tools {
@@ -402,9 +407,14 @@ impl ClaudeCodeExecutor {
             warn!("Failed to send ExecutionStarted event");
         }
 
-        // Create SDK executor with bypass permissions
+        // Create SDK executor with permission mode based on config
+        let permission_mode = if self.config.skip_permissions {
+            PermissionMode::BypassPermissions
+        } else {
+            PermissionMode::Default
+        };
         let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
-            .with_permission_mode(PermissionMode::BypassPermissions);
+            .with_permission_mode(permission_mode);
 
         // Apply tool permissions from config
         if let Some(ref allowed) = self.config.allowed_tools {

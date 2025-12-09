@@ -42,14 +42,13 @@ fn run_app_with_setup(
     // Pre-select based on config defaults
     setup_state.agent_index = super::setup::AGENT_OPTIONS
         .iter()
-        .position(|(name, _)| *name == config.agent_name)
+        .position(|name| *name == config.agent_name)
         .unwrap_or(0);
     setup_state.model_index = super::setup::MODEL_OPTIONS
         .iter()
-        .position(|(name, _)| *name == config.model_name || config.model_name.contains(name))
+        .position(|name| *name == config.model_name || config.model_name.contains(name))
         .unwrap_or(0);
-    setup_state.agent_list_state.select(Some(setup_state.agent_index));
-    setup_state.model_list_state.select(Some(setup_state.model_index));
+    setup_state.skip_permissions = config.skip_permissions;
 
     // Run setup loop
     loop {
@@ -78,6 +77,7 @@ fn run_app_with_setup(
     // Update config with selected values
     config.agent_name = setup_state.selected_agent().to_string();
     config.model_name = setup_state.selected_model().to_string();
+    config.skip_permissions = setup_state.skip_permissions;
 
     // Now start the actual worker
     run_worker_app(config, terminal)

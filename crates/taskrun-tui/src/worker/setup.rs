@@ -4,27 +4,21 @@ use ratatui::crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 /// Predefined agent options.
-pub const AGENT_OPTIONS: &[(&str, &str)] = &[
-    ("general", "General-purpose agent that executes any task"),
-    ("support_triage", "Classifies and triages support tickets"),
-];
+pub const AGENT_OPTIONS: &[&str] = &["general", "support_triage"];
 
 /// Predefined model options.
-pub const MODEL_OPTIONS: &[(&str, &str)] = &[
-    ("claude-sonnet-4-5", "Claude Sonnet 4.5 - Fast and capable"),
-    ("claude-opus-4-5", "Claude Opus 4.5 - Most powerful"),
-    ("claude-haiku-4-5", "Claude Haiku 4.5 - Quick and efficient"),
-];
+pub const MODEL_OPTIONS: &[&str] = &["sonnet", "opus", "haiku"];
 
 /// Which field is currently selected in the setup form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupField {
     Agent,
     Model,
+    SkipPermissions,
     Start,
 }
 
@@ -32,7 +26,8 @@ impl SetupField {
     pub fn next(&self) -> Self {
         match self {
             SetupField::Agent => SetupField::Model,
-            SetupField::Model => SetupField::Start,
+            SetupField::Model => SetupField::SkipPermissions,
+            SetupField::SkipPermissions => SetupField::Start,
             SetupField::Start => SetupField::Agent,
         }
     }
@@ -41,7 +36,8 @@ impl SetupField {
         match self {
             SetupField::Agent => SetupField::Start,
             SetupField::Model => SetupField::Agent,
-            SetupField::Start => SetupField::Model,
+            SetupField::SkipPermissions => SetupField::Model,
+            SetupField::Start => SetupField::SkipPermissions,
         }
     }
 }
@@ -52,23 +48,16 @@ pub struct SetupState {
     pub current_field: SetupField,
     pub agent_index: usize,
     pub model_index: usize,
-    pub agent_list_state: ListState,
-    pub model_list_state: ListState,
+    pub skip_permissions: bool,
 }
 
 impl Default for SetupState {
     fn default() -> Self {
-        let mut agent_list_state = ListState::default();
-        agent_list_state.select(Some(0));
-        let mut model_list_state = ListState::default();
-        model_list_state.select(Some(0));
-
         Self {
             current_field: SetupField::Agent,
             agent_index: 0,
             model_index: 0,
-            agent_list_state,
-            model_list_state,
+            skip_permissions: true, // Default to true for convenience
         }
     }
 }
@@ -76,12 +65,12 @@ impl Default for SetupState {
 impl SetupState {
     /// Get the selected agent name.
     pub fn selected_agent(&self) -> &str {
-        AGENT_OPTIONS[self.agent_index].0
+        AGENT_OPTIONS[self.agent_index]
     }
 
     /// Get the selected model name.
     pub fn selected_model(&self) -> &str {
-        MODEL_OPTIONS[self.model_index].0
+        MODEL_OPTIONS[self.model_index]
     }
 
     /// Handle a key press. Returns true if setup is complete (Enter on Start).
@@ -97,14 +86,15 @@ impl SetupState {
                 SetupField::Agent => {
                     if self.agent_index > 0 {
                         self.agent_index -= 1;
-                        self.agent_list_state.select(Some(self.agent_index));
                     }
                 }
                 SetupField::Model => {
                     if self.model_index > 0 {
                         self.model_index -= 1;
-                        self.model_list_state.select(Some(self.model_index));
                     }
+                }
+                SetupField::SkipPermissions => {
+                    self.skip_permissions = !self.skip_permissions;
                 }
                 SetupField::Start => {}
             },
@@ -112,23 +102,34 @@ impl SetupState {
                 SetupField::Agent => {
                     if self.agent_index < AGENT_OPTIONS.len() - 1 {
                         self.agent_index += 1;
-                        self.agent_list_state.select(Some(self.agent_index));
                     }
                 }
                 SetupField::Model => {
                     if self.model_index < MODEL_OPTIONS.len() - 1 {
                         self.model_index += 1;
-                        self.model_list_state.select(Some(self.model_index));
                     }
+                }
+                SetupField::SkipPermissions => {
+                    self.skip_permissions = !self.skip_permissions;
                 }
                 SetupField::Start => {}
             },
+            KeyCode::Char(' ') => {
+                if self.current_field == SetupField::SkipPermissions {
+                    self.skip_permissions = !self.skip_permissions;
+                }
+            }
             KeyCode::Enter => {
                 if self.current_field == SetupField::Start {
                     return true; // Setup complete
                 }
-                // Move to next field on Enter
-                self.current_field = self.current_field.next();
+                // Toggle on enter for checkbox
+                if self.current_field == SetupField::SkipPermissions {
+                    self.skip_permissions = !self.skip_permissions;
+                } else {
+                    // Move to next field on Enter
+                    self.current_field = self.current_field.next();
+                }
             }
             _ => {}
         }
@@ -140,9 +141,9 @@ impl SetupState {
 pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
     let area = frame.area();
 
-    // Create a centered popup
-    let popup_width = 60.min(area.width.saturating_sub(4));
-    let popup_height = 18.min(area.height.saturating_sub(4));
+    // Create a centered popup - more compact
+    let popup_width = 50.min(area.width.saturating_sub(4));
+    let popup_height = 12.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_width, popup_height, area);
 
     // Clear the background
@@ -166,61 +167,48 @@ pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Title
+            Constraint::Length(1), // Agent row
+            Constraint::Length(1), // Model row
+            Constraint::Length(1), // Skip permissions row
             Constraint::Length(1), // Spacer
-            Constraint::Length(1), // Agent label
-            Constraint::Length(3), // Agent selector
-            Constraint::Length(1), // Model label
-            Constraint::Length(3), // Model selector
+            Constraint::Length(1), // Start button
             Constraint::Length(1), // Spacer
-            Constraint::Length(3), // Start button
-            Constraint::Min(0),    // Remaining
+            Constraint::Min(0),    // Help text
         ])
         .split(inner);
 
-    // Title
-    let title = Paragraph::new("Configure your worker settings:")
-        .style(Style::default().fg(Color::White));
-    frame.render_widget(title, chunks[0]);
-
-    // Agent label
-    let agent_style = if state.current_field == SetupField::Agent {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Gray)
-    };
-    let agent_label = Paragraph::new("Agent:").style(agent_style);
-    frame.render_widget(agent_label, chunks[2]);
-
-    // Agent selector
-    render_selector(
+    // Agent row
+    render_option_row(
         frame,
-        chunks[3],
+        chunks[0],
+        "Agent",
         AGENT_OPTIONS,
         state.agent_index,
         state.current_field == SetupField::Agent,
     );
 
-    // Model label
-    let model_style = if state.current_field == SetupField::Model {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Gray)
-    };
-    let model_label = Paragraph::new("Model:").style(model_style);
-    frame.render_widget(model_label, chunks[4]);
-
-    // Model selector
-    render_selector(
+    // Model row
+    render_option_row(
         frame,
-        chunks[5],
+        chunks[1],
+        "Model",
         MODEL_OPTIONS,
         state.model_index,
         state.current_field == SetupField::Model,
     );
 
+    // Skip permissions row
+    render_toggle_row(
+        frame,
+        chunks[2],
+        "Skip Permissions",
+        state.skip_permissions,
+        state.current_field == SetupField::SkipPermissions,
+    );
+
     // Start button
-    let start_style = if state.current_field == SetupField::Start {
+    let start_focused = state.current_field == SetupField::Start;
+    let start_style = if start_focused {
         Style::default()
             .fg(Color::Black)
             .bg(Color::Green)
@@ -228,84 +216,113 @@ pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
     } else {
         Style::default().fg(Color::Green)
     };
-    let start_text = if state.current_field == SetupField::Start {
-        "[ Start Worker ]"
+    let start_text = if start_focused {
+        "▶ Start Worker"
     } else {
-        "  Start Worker  "
+        "  Start Worker"
     };
     let start_button = Paragraph::new(start_text)
         .style(start_style)
         .alignment(ratatui::layout::Alignment::Center);
-    frame.render_widget(start_button, chunks[7]);
+    frame.render_widget(start_button, chunks[4]);
 
-    // Help text at bottom
+    // Help text
     let help = Paragraph::new(Line::from(vec![
-        Span::styled("[Tab/Arrows]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Navigate  "),
-        Span::styled("[Left/Right]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Select  "),
-        Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Confirm  "),
-        Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Quit"),
+        Span::styled("↑↓", Style::default().fg(Color::Cyan)),
+        Span::raw(" nav  "),
+        Span::styled("←→", Style::default().fg(Color::Cyan)),
+        Span::raw(" select  "),
+        Span::styled("Enter", Style::default().fg(Color::Cyan)),
+        Span::raw(" confirm  "),
+        Span::styled("Esc", Style::default().fg(Color::Cyan)),
+        Span::raw(" quit"),
     ]))
-    .alignment(ratatui::layout::Alignment::Center);
+    .alignment(ratatui::layout::Alignment::Center)
+    .style(Style::default().fg(Color::DarkGray));
 
-    if chunks.len() > 8 && chunks[8].height > 0 {
-        frame.render_widget(help, chunks[8]);
+    if chunks.len() > 6 && chunks[6].height > 0 {
+        frame.render_widget(help, chunks[6]);
     }
 }
 
-/// Render a horizontal selector with options.
-fn render_selector(
+/// Render a single-line option row with left/right selection.
+fn render_option_row(
     frame: &mut Frame,
     area: Rect,
-    options: &[(&str, &str)],
+    label: &str,
+    options: &[&str],
     selected: usize,
     is_focused: bool,
 ) {
-    let border_style = if is_focused {
-        Style::default().fg(Color::Yellow)
+    let label_style = if is_focused {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Gray)
     };
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(border_style);
+    let value_style = if is_focused {
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    };
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let arrow_style = Style::default().fg(Color::Cyan);
 
-    // Build the selector line
-    let mut spans = Vec::new();
+    let mut spans = vec![
+        Span::styled(format!("{:>16}: ", label), label_style),
+    ];
 
     // Left arrow
-    if selected > 0 {
-        spans.push(Span::styled(" < ", Style::default().fg(Color::Cyan)));
+    if selected > 0 && is_focused {
+        spans.push(Span::styled("◀ ", arrow_style));
     } else {
-        spans.push(Span::raw("   "));
+        spans.push(Span::raw("  "));
     }
 
-    // Selected option
-    let (name, desc) = options[selected];
-    spans.push(Span::styled(
-        name,
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-    ));
-    spans.push(Span::styled(
-        format!(" - {}", desc),
-        Style::default().fg(Color::DarkGray),
-    ));
+    // Value
+    spans.push(Span::styled(options[selected], value_style));
 
     // Right arrow
-    if selected < options.len() - 1 {
-        spans.push(Span::styled(" > ", Style::default().fg(Color::Cyan)));
+    if selected < options.len() - 1 && is_focused {
+        spans.push(Span::styled(" ▶", arrow_style));
     }
 
-    let line = Line::from(spans);
-    let text = Paragraph::new(line);
-    frame.render_widget(text, inner);
+    let line = Paragraph::new(Line::from(spans));
+    frame.render_widget(line, area);
+}
+
+/// Render a toggle row with checkbox.
+fn render_toggle_row(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: bool,
+    is_focused: bool,
+) {
+    let label_style = if is_focused {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
+
+    let checkbox = if value {
+        Span::styled("[✓]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+    } else {
+        Span::styled("[ ]", Style::default().fg(Color::DarkGray))
+    };
+
+    let hint = if is_focused {
+        Span::styled(" (space to toggle)", Style::default().fg(Color::DarkGray))
+    } else {
+        Span::raw("")
+    };
+
+    let line = Paragraph::new(Line::from(vec![
+        Span::styled(format!("{:>16}: ", label), label_style),
+        checkbox,
+        hint,
+    ]));
+    frame.render_widget(line, area);
 }
 
 /// Create a centered rectangle.

@@ -18,6 +18,7 @@ pub struct WorkerConfig {
     pub denied_tools: Option<Vec<String>>,
     pub max_concurrent_runs: u32,
     pub working_dir: String,
+    pub skip_permissions: bool,
 }
 
 impl WorkerConfig {
