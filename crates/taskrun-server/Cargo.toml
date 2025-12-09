@@ -15,6 +15,7 @@ path = "src/main.rs"
 taskrun-core = { path = "../taskrun-core" }
 taskrun-proto = { path = "../taskrun-proto" }
 taskrun-control-plane = { path = "../taskrun-control-plane" }
+taskrun-tui-components = { path = "../taskrun-tui-components" }
 
 # Async runtime
 tokio.workspace = true

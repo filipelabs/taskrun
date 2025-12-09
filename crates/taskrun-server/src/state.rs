@@ -5,8 +5,7 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
-
-use crate::event::LogLevel;
+use taskrun_tui_components::{LogEntry, LogLevel};
 
 /// Server views.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,14 +74,6 @@ pub struct TaskDisplayInfo {
     pub run_count: usize,
     pub latest_run_id: Option<RunId>,
     pub latest_run_status: Option<RunStatus>,
-}
-
-/// Log entry.
-#[derive(Debug, Clone)]
-pub struct LogEntry {
-    pub timestamp: DateTime<Utc>,
-    pub level: LogLevel,
-    pub message: String,
 }
 
 /// Chat message entry for display.

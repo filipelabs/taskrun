@@ -3,6 +3,9 @@
 use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
+// Re-export LogLevel from shared components
+pub use taskrun_tui_components::LogLevel;
+
 /// Events sent from backend to UI.
 #[derive(Debug, Clone)]
 pub enum ServerUiEvent {
@@ -88,25 +91,4 @@ pub enum ServerCommand {
 pub struct WorkerMessage {
     pub worker_id: WorkerId,
     pub message: RunServerMessage,
-}
-
-/// Log level for UI messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Debug variant for API completeness
-pub enum LogLevel {
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            LogLevel::Debug => "DEBUG",
-            LogLevel::Info => "INFO",
-            LogLevel::Warn => "WARN",
-            LogLevel::Error => "ERROR",
-        }
-    }
 }

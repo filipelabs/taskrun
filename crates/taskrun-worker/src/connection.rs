@@ -453,7 +453,14 @@ async fn execute_continue_run(
     let task_id_clone = TaskId::new(&task_id);
     let executor_handle = tokio::spawn(async move {
         executor_clone
-            .execute_follow_up(&session_id, &message, chunk_tx, event_tx, run_id_clone, task_id_clone)
+            .execute_follow_up(
+                &session_id,
+                &message,
+                chunk_tx,
+                event_tx,
+                run_id_clone,
+                task_id_clone,
+            )
             .await
     });
 

@@ -104,13 +104,18 @@ impl<'a> ChatWidget<'a> {
 
         for msg in self.messages {
             let (prefix, style) = match msg.role {
-                ChatRole::User => ("You: ", self.theme.user_style().add_modifier(Modifier::BOLD)),
-                ChatRole::Assistant => {
-                    ("AI: ", self.theme.assistant_style().add_modifier(Modifier::BOLD))
-                }
-                ChatRole::System => {
-                    ("System: ", self.theme.system_style().add_modifier(Modifier::BOLD))
-                }
+                ChatRole::User => (
+                    "You: ",
+                    self.theme.user_style().add_modifier(Modifier::BOLD),
+                ),
+                ChatRole::Assistant => (
+                    "AI: ",
+                    self.theme.assistant_style().add_modifier(Modifier::BOLD),
+                ),
+                ChatRole::System => (
+                    "System: ",
+                    self.theme.system_style().add_modifier(Modifier::BOLD),
+                ),
             };
 
             // Add message header
@@ -164,9 +169,9 @@ impl<'a> ChatWidget<'a> {
         // Build title
         let first_line = scroll_offset + 1;
         let last_line = (scroll_offset + visible_height).min(total_lines);
-        let title = self.title.unwrap_or_else(|| {
-            format!(" Chat [{}-{}/{}] ", first_line, last_line, total_lines)
-        });
+        let title = self
+            .title
+            .unwrap_or_else(|| format!(" Chat [{}-{}/{}] ", first_line, last_line, total_lines));
 
         let paragraph = Paragraph::new(lines).block(
             Block::default()

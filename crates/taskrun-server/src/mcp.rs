@@ -156,7 +156,9 @@ impl TaskRunMcpServer {
     }
 
     /// List all connected workers and their capabilities.
-    #[tool(description = "List all connected workers and their capabilities. Optionally filter by agent name.")]
+    #[tool(
+        description = "List all connected workers and their capabilities. Optionally filter by agent name."
+    )]
     async fn list_workers(
         &self,
         Parameters(params): Parameters<ListWorkersParams>,
@@ -182,8 +184,8 @@ impl TaskRunMcpServer {
             })
             .collect();
 
-        let response = serde_json::to_string_pretty(&workers_list)
-            .unwrap_or_else(|_| "[]".to_string());
+        let response =
+            serde_json::to_string_pretty(&workers_list).unwrap_or_else(|_| "[]".to_string());
 
         info!(worker_count = workers_list.len(), "Listed workers via MCP");
 
@@ -191,7 +193,9 @@ impl TaskRunMcpServer {
     }
 
     /// Start a new task on an available worker.
-    #[tool(description = "Start a new task on an available worker. Requires an agent name and input text.")]
+    #[tool(
+        description = "Start a new task on an available worker. Requires an agent name and input text."
+    )]
     async fn start_new_task(
         &self,
         Parameters(params): Parameters<StartNewTaskParams>,
@@ -209,11 +213,7 @@ impl TaskRunMcpServer {
         let task_id = task.id.clone();
 
         // Store task
-        self.state
-            .tasks
-            .write()
-            .await
-            .insert(task_id.clone(), task);
+        self.state.tasks.write().await.insert(task_id.clone(), task);
 
         // Notify UI
         self.state.notify_ui(UiNotification::TaskCreated {
@@ -243,22 +243,22 @@ impl TaskRunMcpServer {
                     status: "running".to_string(),
                 };
 
-                let response = serde_json::to_string_pretty(&result)
-                    .unwrap_or_else(|_| "{}".to_string());
+                let response =
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string());
 
                 Ok(CallToolResult::success(vec![Content::text(response)]))
             }
-            Err(e) => {
-                Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to schedule task: {}",
-                    e
-                ))]))
-            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to schedule task: {}",
+                e
+            ))])),
         }
     }
 
     /// Get details about a task.
-    #[tool(description = "Get details about a task including its status, input, output, and run history.")]
+    #[tool(
+        description = "Get details about a task including its status, input, output, and run history."
+    )]
     async fn get_task(
         &self,
         Parameters(params): Parameters<GetTaskParams>,
@@ -311,8 +311,7 @@ impl TaskRunMcpServer {
             chat_messages,
         };
 
-        let response =
-            serde_json::to_string_pretty(&details).unwrap_or_else(|_| "{}".to_string());
+        let response = serde_json::to_string_pretty(&details).unwrap_or_else(|_| "{}".to_string());
 
         info!(task_id = %task_id, "Retrieved task details via MCP");
 
@@ -320,7 +319,9 @@ impl TaskRunMcpServer {
     }
 
     /// Continue an existing task with a follow-up message.
-    #[tool(description = "Continue an existing task by sending a follow-up message. Requires the task ID and message.")]
+    #[tool(
+        description = "Continue an existing task by sending a follow-up message. Requires the task ID and message."
+    )]
     async fn continue_task(
         &self,
         Parameters(params): Parameters<ContinueTaskParams>,
@@ -391,8 +392,7 @@ impl TaskRunMcpServer {
             status: "running".to_string(),
         };
 
-        let response =
-            serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string());
+        let response = serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string());
 
         Ok(CallToolResult::success(vec![Content::text(response)]))
     }

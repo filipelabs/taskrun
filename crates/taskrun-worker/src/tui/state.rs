@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 
+// Re-export shared types
+pub use taskrun_tui_components::{LogEntry, LogLevel};
+
 /// Worker configuration from CLI arguments.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -243,33 +246,6 @@ impl RunInfo {
             .first()
             .map(|m| m.content.as_str())
             .unwrap_or("")
-    }
-}
-
-/// Log entry for the logs view.
-#[derive(Debug, Clone)]
-pub struct LogEntry {
-    pub timestamp: DateTime<Utc>,
-    pub level: LogLevel,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum LogLevel {
-    Info,
-    Warn,
-    Error,
-    Debug,
-}
-
-impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            LogLevel::Info => "INFO",
-            LogLevel::Warn => "WARN",
-            LogLevel::Error => "ERROR",
-            LogLevel::Debug => "DEBUG",
-        }
     }
 }
 

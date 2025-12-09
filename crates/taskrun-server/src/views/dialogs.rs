@@ -1,49 +1,18 @@
 //! Dialog overlays.
 
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
+use taskrun_tui_components::{centered_rect, ConfirmDialog};
+
 use crate::state::ServerUiState;
 
 /// Render the quit confirmation dialog.
 pub fn render_quit_confirm(f: &mut Frame) {
-    let area = centered_rect(40, 7, f.area());
-
-    f.render_widget(Clear, area);
-
-    let text = vec![
-        Line::from(""),
-        Line::from("Are you sure you want to quit?"),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "[Y]",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("es  "),
-            Span::styled(
-                "[N]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("o"),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text)
-        .block(
-            Block::default()
-                .title(" Quit ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .alignment(Alignment::Center);
-
-    f.render_widget(paragraph, area);
+    ConfirmDialog::new("Quit", "Are you sure you want to quit?").render(f);
 }
 
 /// Render the new task dialog.
@@ -151,97 +120,29 @@ fn render_input_field(value: &str, focused: bool, cursor: usize) -> Paragraph<'s
 
 /// Render the cancel task confirmation dialog.
 pub fn render_cancel_confirm(f: &mut Frame, state: &ServerUiState) {
-    let area = centered_rect(50, 8, f.area());
-
-    f.render_widget(Clear, area);
-
     let task_id = state
         .get_selected_task()
         .map(|t| t.task_id.to_string()[..8].to_string())
         .unwrap_or_else(|| "?".to_string());
 
-    let text = vec![
-        Line::from(""),
-        Line::from(format!("Cancel task {}?", task_id)),
-        Line::from(""),
-        Line::from("This will stop any running executions."),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "[Y]",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("es  "),
-            Span::styled(
-                "[N]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("o"),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text)
-        .block(
-            Block::default()
-                .title(" Cancel Task ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .alignment(Alignment::Center);
-
-    f.render_widget(paragraph, area);
+    ConfirmDialog::new("Cancel Task", &format!("Cancel task {}?", task_id))
+        .secondary("This will stop any running executions.")
+        .size(50, 9)
+        .render(f);
 }
 
 /// Render the disconnect worker confirmation dialog.
 pub fn render_disconnect_confirm(f: &mut Frame, state: &ServerUiState) {
-    let area = centered_rect(50, 8, f.area());
-
-    f.render_widget(Clear, area);
-
     let worker_id = state
         .get_selected_worker()
         .map(|w| w.worker_id.to_string()[..8].to_string())
         .unwrap_or_else(|| "?".to_string());
 
-    let text = vec![
-        Line::from(""),
-        Line::from(format!("Disconnect worker {}?", worker_id)),
-        Line::from(""),
-        Line::from("Active runs will be reassigned."),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "[Y]",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("es  "),
-            Span::styled(
-                "[N]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("o"),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text)
-        .block(
-            Block::default()
-                .title(" Disconnect Worker ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .alignment(Alignment::Center);
-
-    f.render_widget(paragraph, area);
-}
-
-/// Create a centered rectangle.
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
-    Rect::new(x, y, width.min(area.width), height.min(area.height))
+    ConfirmDialog::new(
+        "Disconnect Worker",
+        &format!("Disconnect worker {}?", worker_id),
+    )
+    .secondary("Active runs will be reassigned.")
+    .size(50, 9)
+    .render(f);
 }

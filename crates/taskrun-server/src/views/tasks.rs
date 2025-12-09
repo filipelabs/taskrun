@@ -1,38 +1,35 @@
 //! Tasks view.
 
-use ratatui::layout::{Constraint, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use ratatui::layout::Rect;
+use ratatui::style::Color;
 use ratatui::Frame;
 
 use taskrun_core::TaskStatus;
+use taskrun_tui_components::{DataTable, TableCell, TableColumn, TableRow};
 
 use crate::state::ServerUiState;
 
 pub fn render_tasks_view(f: &mut Frame, state: &ServerUiState, area: Rect) {
     let tasks = state.task_display_list();
 
-    let header = Row::new(vec![
-        Cell::from("Task ID"),
-        Cell::from("Agent"),
-        Cell::from("Status"),
-        Cell::from("Created"),
-        Cell::from("Runs"),
-        Cell::from("Latest Run"),
-    ])
-    .style(Style::default().add_modifier(Modifier::BOLD))
-    .height(1);
+    let columns = vec![
+        TableColumn::new("Task ID", 10),
+        TableColumn::new("Agent", 20),
+        TableColumn::new("Status", 12),
+        TableColumn::new("Created", 12),
+        TableColumn::new("Runs", 6),
+        TableColumn::flex("Latest Run", 12),
+    ];
 
-    let rows: Vec<Row> = tasks
+    let rows: Vec<TableRow> = tasks
         .iter()
-        .enumerate()
-        .map(|(i, t)| {
-            let status_style = match t.status {
-                TaskStatus::Pending => Style::default().fg(Color::Yellow),
-                TaskStatus::Running => Style::default().fg(Color::Cyan),
-                TaskStatus::Completed => Style::default().fg(Color::Green),
-                TaskStatus::Failed => Style::default().fg(Color::Red),
-                TaskStatus::Cancelled => Style::default().fg(Color::DarkGray),
+        .map(|t| {
+            let status_color = match t.status {
+                TaskStatus::Pending => Color::Yellow,
+                TaskStatus::Running => Color::Cyan,
+                TaskStatus::Completed => Color::Green,
+                TaskStatus::Failed => Color::Red,
+                TaskStatus::Cancelled => Color::DarkGray,
             };
 
             let created_ago = chrono::Utc::now()
@@ -51,47 +48,19 @@ pub fn render_tasks_view(f: &mut Frame, state: &ServerUiState, area: Rect) {
                 None => "-".to_string(),
             };
 
-            let row_style = if i == state.selected_task_index {
-                Style::default().bg(Color::DarkGray)
-            } else {
-                Style::default()
-            };
-
-            Row::new(vec![
-                Cell::from(t.task_id.to_string()[..8].to_string()),
-                Cell::from(t.agent_name.clone()),
-                Cell::from(format!("{:?}", t.status)).style(status_style),
-                Cell::from(created_str),
-                Cell::from(format!("{}", t.run_count)),
-                Cell::from(latest_run_str),
+            TableRow::new(vec![
+                TableCell::new(t.task_id.to_string()[..8].to_string()),
+                TableCell::new(t.agent_name.clone()),
+                TableCell::new(format!("{:?}", t.status)).color(status_color),
+                TableCell::muted(created_str),
+                TableCell::new(format!("{}", t.run_count)),
+                TableCell::new(latest_run_str),
             ])
-            .style(row_style)
-            .height(1)
         })
         .collect();
 
-    let widths = [
-        Constraint::Length(10), // Task ID
-        Constraint::Length(20), // Agent
-        Constraint::Length(12), // Status
-        Constraint::Length(12), // Created
-        Constraint::Length(6),  // Runs
-        Constraint::Min(12),    // Latest Run
-    ];
-
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::default()
-                .title(format!(" Tasks ({}) ", state.task_list.len()))
-                .borders(Borders::ALL),
-        )
-        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
-    let mut table_state = TableState::default();
-    if !tasks.is_empty() {
-        table_state.select(Some(state.selected_task_index));
-    }
-
-    f.render_stateful_widget(table, area, &mut table_state);
+    DataTable::new(&columns, &rows)
+        .title(format!(" Tasks ({}) ", state.task_list.len()))
+        .selected(state.selected_task_index)
+        .render(f, area);
 }
