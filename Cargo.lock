@@ -5159,6 +5159,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskrun-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "clap",
+ "crossterm",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "taskrun-control-plane",
+ "taskrun-core",
+ "taskrun-proto",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "taskrun-tui"
 version = "0.1.0"
 dependencies = [

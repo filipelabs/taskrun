@@ -6,10 +6,67 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::{broadcast, mpsc, RwLock};
 
-use taskrun_core::{RunEvent, RunId, RunStatus, Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
 use crate::crypto::{BootstrapToken, CertificateAuthority};
+
+// ============================================================================
+// UI Notification Types
+// ============================================================================
+
+/// Notifications sent to the TUI for real-time updates.
+#[derive(Debug, Clone)]
+pub enum UiNotification {
+    /// A worker connected to the control plane.
+    WorkerConnected {
+        worker_id: WorkerId,
+        hostname: String,
+        agents: Vec<String>,
+    },
+    /// A worker disconnected from the control plane.
+    WorkerDisconnected {
+        worker_id: WorkerId,
+    },
+    /// A worker sent a heartbeat.
+    WorkerHeartbeat {
+        worker_id: WorkerId,
+        status: WorkerStatus,
+        active_runs: u32,
+    },
+    /// A new task was created.
+    TaskCreated {
+        task_id: TaskId,
+        agent: String,
+    },
+    /// Task status changed.
+    TaskStatusChanged {
+        task_id: TaskId,
+        status: TaskStatus,
+    },
+    /// Run status changed.
+    RunStatusChanged {
+        run_id: RunId,
+        task_id: TaskId,
+        worker_id: Option<WorkerId>,
+        status: RunStatus,
+    },
+    /// Run output chunk received.
+    RunOutputChunk {
+        run_id: RunId,
+        task_id: TaskId,
+        content: String,
+    },
+    /// Run event occurred.
+    RunEvent {
+        run_id: RunId,
+        task_id: TaskId,
+        event_type: RunEventType,
+    },
+}
+
+/// Type alias for UI notification sender.
+pub type UiNotificationSender = broadcast::Sender<UiNotification>;
 
 // ============================================================================
 // Streaming Types
@@ -86,6 +143,9 @@ pub struct AppState {
 
     /// Certificate authority for signing worker CSRs.
     pub ca: Option<CertificateAuthority>,
+
+    /// Optional channel for sending notifications to the TUI.
+    pub ui_tx: Option<UiNotificationSender>,
 }
 
 impl AppState {
@@ -99,6 +159,7 @@ impl AppState {
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
+            ui_tx: None,
         })
     }
 
@@ -112,7 +173,33 @@ impl AppState {
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: Some(ca),
+            ui_tx: None,
         })
+    }
+
+    /// Create a new AppState with UI notification channel.
+    /// Returns the AppState and a receiver for notifications.
+    pub fn with_ui_channel(ca: Option<CertificateAuthority>) -> (Arc<Self>, broadcast::Receiver<UiNotification>) {
+        let (tx, rx) = broadcast::channel(256);
+        let state = Arc::new(Self {
+            workers: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::new()),
+            events: RwLock::new(HashMap::new()),
+            outputs: RwLock::new(HashMap::new()),
+            stream_channels: RwLock::new(HashMap::new()),
+            bootstrap_tokens: RwLock::new(HashMap::new()),
+            ca,
+            ui_tx: Some(tx),
+        });
+        (state, rx)
+    }
+
+    /// Send a notification to the UI if a channel is configured.
+    pub fn notify_ui(&self, notification: UiNotification) {
+        if let Some(ref tx) = self.ui_tx {
+            // Ignore send errors (no subscribers = ok to drop)
+            let _ = tx.send(notification);
+        }
     }
 
     /// Get the number of connected workers.
@@ -239,6 +326,7 @@ impl Default for AppState {
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
+            ui_tx: None,
         }
     }
 }

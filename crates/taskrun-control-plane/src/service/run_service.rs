@@ -22,7 +22,7 @@ use taskrun_proto::pb::{
 use taskrun_proto::{RunService, RunServiceServer};
 
 use crate::service::mtls::validate_worker_id_format;
-use crate::state::{AppState, ConnectedWorker, StreamEvent};
+use crate::state::{AppState, ConnectedWorker, StreamEvent, UiNotification};
 
 /// RunService implementation.
 pub struct RunServiceImpl {
@@ -104,6 +104,11 @@ impl RunService for RunServiceImpl {
             if let Some(id) = worker_id_clone.lock().await.take() {
                 info!(worker_id = %id, "Worker disconnected");
                 state_clone.workers.write().await.remove(&id);
+
+                // Notify UI
+                state_clone.notify_ui(UiNotification::WorkerDisconnected {
+                    worker_id: id,
+                });
             }
         });
 
@@ -146,6 +151,10 @@ async fn handle_worker_hello(
         // Store worker_id for cleanup on disconnect
         *worker_id_holder.lock().await = Some(worker_id.clone());
 
+        // Capture info for notification before move
+        let hostname = info.hostname.clone();
+        let agents: Vec<String> = info.agents.iter().map(|a| a.name.clone()).collect();
+
         // Register worker in state
         let connected = ConnectedWorker {
             info,
@@ -156,7 +165,14 @@ async fn handle_worker_hello(
             tx,
         };
 
-        state.workers.write().await.insert(worker_id, connected);
+        state.workers.write().await.insert(worker_id.clone(), connected);
+
+        // Notify UI
+        state.notify_ui(UiNotification::WorkerConnected {
+            worker_id,
+            hostname,
+            agents,
+        });
     } else {
         error!("WorkerHello received without WorkerInfo");
     }
@@ -187,6 +203,14 @@ async fn handle_heartbeat(state: &Arc<AppState>, hb: WorkerHeartbeat) {
             active_runs = worker.active_runs,
             "Heartbeat received"
         );
+
+        // Notify UI
+        drop(workers); // Release lock before notification
+        state.notify_ui(UiNotification::WorkerHeartbeat {
+            worker_id,
+            status,
+            active_runs: hb.active_runs,
+        });
     } else {
         warn!(worker_id = %hb.worker_id, "Heartbeat from unknown worker");
     }
@@ -294,6 +318,29 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                     )
                     .await;
 
+                // Notify UI of run status change
+                state.notify_ui(UiNotification::RunStatusChanged {
+                    run_id: run_id.clone(),
+                    task_id: task_id.clone(),
+                    worker_id: Some(worker_id.clone()),
+                    status: run_status,
+                });
+
+                // Notify UI of task status change if it changed
+                if run_status.is_terminal() || run_status == RunStatus::Running {
+                    let task_status = match run_status {
+                        RunStatus::Running => TaskStatus::Running,
+                        RunStatus::Completed => TaskStatus::Completed,
+                        RunStatus::Failed => TaskStatus::Failed,
+                        RunStatus::Cancelled => TaskStatus::Cancelled,
+                        _ => return,
+                    };
+                    state.notify_ui(UiNotification::TaskStatusChanged {
+                        task_id: task_id.clone(),
+                        status: task_status,
+                    });
+                }
+
                 // Schedule cleanup for terminal status
                 if is_terminal {
                     let state_clone = state.clone();
@@ -324,7 +371,7 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
             .map(|t| t.id.clone())
     };
 
-    if let Some(task_id) = task_id {
+    if let Some(ref task_id) = task_id {
         info!(
             task_id = %task_id,
             run_id = %chunk.run_id,
@@ -347,6 +394,7 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
     }
 
     // Publish to stream channel for SSE subscribers
+    let content_for_ui = chunk.content.clone();
     state
         .publish_stream_event(
             &run_id,
@@ -358,6 +406,15 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
             },
         )
         .await;
+
+    // Notify UI of output chunk
+    if let Some(task_id) = task_id {
+        state.notify_ui(UiNotification::RunOutputChunk {
+            run_id,
+            task_id,
+            content: content_for_ui,
+        });
+    }
 }
 
 async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
@@ -393,6 +450,13 @@ async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
         event_type = ?event_type,
         "Run event received"
     );
+
+    // Notify UI
+    state.notify_ui(UiNotification::RunEvent {
+        run_id: event.run_id.clone(),
+        task_id: event.task_id.clone(),
+        event_type,
+    });
 
     // Store the event
     state.store_event(event).await;

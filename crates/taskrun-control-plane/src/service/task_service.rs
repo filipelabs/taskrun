@@ -14,7 +14,7 @@ use taskrun_proto::pb::{
 use taskrun_proto::{TaskService, TaskServiceServer};
 
 use crate::scheduler::Scheduler;
-use crate::state::AppState;
+use crate::state::{AppState, UiNotification};
 
 /// TaskService implementation.
 pub struct TaskServiceImpl {
@@ -65,6 +65,12 @@ impl TaskService for TaskServiceImpl {
 
         // Store task
         self.state.tasks.write().await.insert(task_id.clone(), task);
+
+        // Notify UI
+        self.state.notify_ui(UiNotification::TaskCreated {
+            task_id: task_id.clone(),
+            agent: req.agent_name.clone(),
+        });
 
         // Try to schedule immediately
         match self.scheduler.assign_task(&task_id).await {
@@ -175,6 +181,12 @@ impl TaskService for TaskServiceImpl {
             }
 
             info!(task_id = %task_id, "Cancelling task");
+
+            // Notify UI of task status change
+            self.state.notify_ui(UiNotification::TaskStatusChanged {
+                task_id: task_id.clone(),
+                status: TaskStatus::Cancelled,
+            });
 
             // Collect active runs
             runs_to_cancel = task
