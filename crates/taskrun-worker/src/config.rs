@@ -9,9 +9,9 @@ use taskrun_core::WorkerId;
 #[command(about = "TaskRun Worker - connects to control plane and executes agent tasks")]
 #[command(version)]
 pub struct Cli {
-    /// Run with interactive terminal UI (requires 'tui' feature)
+    /// Run in headless mode (daemon without TUI)
     #[arg(long)]
-    pub tui: bool,
+    pub headless: bool,
 
     /// Agent name to run (e.g., general, support_triage)
     #[arg(short, long, default_value = "general")]

@@ -11,7 +11,7 @@ name = "taskrun-worker"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["tui"]
 tui = ["ratatui", "crossterm", "taskrun-ui", "uuid", "ctrlc"]
 
 [dependencies]

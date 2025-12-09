@@ -163,14 +163,10 @@ Features:
 
 ### Worker TUI
 
-Run a worker with interactive terminal UI (requires `tui` feature):
+Run a worker with interactive terminal UI:
 
 ```bash
-# Build with TUI support
-cargo build -p taskrun-worker --features tui
-
-# Run with TUI
-cargo run -p taskrun-worker --features tui -- --tui
+cargo run -p taskrun-worker
 ```
 
 Features:
@@ -182,10 +178,13 @@ Features:
 
 ```bash
 # With custom options
-cargo run -p taskrun-worker --features tui -- --tui \
+cargo run -p taskrun-worker -- \
   --agent general \
   --model claude-sonnet-4-5 \
   --endpoint https://[::1]:50051
+
+# Headless mode (daemon, no TUI)
+cargo run -p taskrun-worker -- --headless
 ```
 
 ## CLI

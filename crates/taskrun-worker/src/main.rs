@@ -21,20 +21,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
-    // Check if TUI mode is requested
+    // Run headless if requested or if TUI feature is not available
+    if cli.headless {
+        return run_headless_mode(cli);
+    }
+
+    // Default: run TUI mode
     #[cfg(feature = "tui")]
-    if cli.tui {
+    {
         return run_tui_mode(cli);
     }
 
     #[cfg(not(feature = "tui"))]
-    if cli.tui {
-        eprintln!("TUI mode requires the 'tui' feature. Rebuild with: cargo build -p taskrun-worker --features tui");
+    {
+        eprintln!("TUI not available. Rebuild with: cargo build -p taskrun-worker --features tui");
+        eprintln!("Or run with --headless flag for daemon mode.");
         std::process::exit(1);
     }
-
-    // Run headless mode
-    run_headless_mode(cli)
 }
 
 /// Run the worker in headless mode (daemon).
