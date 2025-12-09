@@ -10,6 +10,7 @@ members = [
     "crates/taskrun-admin-client",
     "crates/taskrun-tui",
     "crates/taskrun-server",
+    "crates/taskrun-ui",
     "devtools",
     "devtools/src-tauri",
 ]

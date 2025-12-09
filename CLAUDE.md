@@ -55,11 +55,13 @@ taskrun-v2/
   crates/
     taskrun-core/         # Domain types (Task, Run, Worker, ModelBackend)
     taskrun-proto/        # Generated gRPC code (tonic/prost) + converters
-    taskrun-store/        # Storage traits (TaskStore, WorkerStore, RunStore)
-    taskrun-store-memory/ # In-memory implementation for dev/tests
-    taskrun-control-plane/# Control plane binary
-    taskrun-worker/       # Worker binary
-    taskrun-cli/          # Admin CLI (optional)
+    taskrun-control-plane/# Control plane library (state, services, HTTP handlers)
+    taskrun-server/       # Server TUI binary (uses control-plane + ui)
+    taskrun-worker/       # Headless worker binary
+    taskrun-tui/          # Worker TUI binary (interactive worker)
+    taskrun-ui/           # Shared TUI components (widgets, theme, utils)
+    taskrun-cli/          # Admin CLI
+    taskrun-claude-sdk/   # Claude Code SDK for agent execution
 ```
 
 ## gRPC Services
@@ -232,6 +234,76 @@ Always use the official terms:
 - `ModelBackend` (not "provider", "llm", "model" alone)
 
 When introducing new concepts, integrate them into existing vocabulary rather than inventing new terms.
+
+### TUI Development (taskrun-ui)
+
+The `taskrun-ui` crate provides shared TUI components used by both `taskrun-server` and `taskrun-tui`.
+
+**Architecture:**
+```
+taskrun-ui/
+  src/
+    lib.rs          # Public exports
+    theme.rs        # Colors, styles (Theme struct)
+    utils.rs        # Text wrapping, formatting helpers
+    widgets/        # Reusable ratatui widgets
+      mod.rs
+      chat.rs       # ChatWidget - conversation display
+      events.rs     # EventsWidget - execution events
+```
+
+**Rules for taskrun-ui:**
+
+1. **No domain dependencies**: `taskrun-ui` must NOT depend on `taskrun-core`, `taskrun-proto`, or any other TaskRun crate. It only depends on `ratatui`, `crossterm`, `chrono`, and `unicode-width`.
+
+2. **Data-agnostic widgets**: Widgets receive data through their own simple structs (e.g., `ChatMessage`, `EventInfo`), not domain types. Consumers convert domain types to widget types.
+
+3. **Builder pattern**: Widgets use builder pattern for configuration:
+   ```rust
+   ChatWidget::new(&messages)
+       .streaming(&current_output)
+       .scroll(offset)
+       .focused(true)
+       .render(frame, area);
+   ```
+
+4. **Theme consistency**: All widgets accept a `Theme` for styling. Use `Theme::default()` for standard TaskRun colors.
+
+5. **When to add to taskrun-ui**:
+   - Widget is used by 2+ TUI applications
+   - Widget is generic (not tied to specific domain logic)
+   - Widget handles common patterns (chat, logs, events, tables)
+
+6. **When NOT to add to taskrun-ui**:
+   - Application-specific layouts or views
+   - Widgets that need domain types directly
+   - One-off UI components
+
+**Using widgets in applications:**
+
+```rust
+// In taskrun-server or taskrun-tui
+use taskrun_ui::{ChatWidget, ChatMessage, ChatRole, Theme};
+
+// Convert domain types to widget types
+let messages: Vec<ChatMessage> = domain_messages
+    .iter()
+    .map(|m| ChatMessage {
+        role: match m.role {
+            taskrun_core::ChatRole::User => ChatRole::User,
+            taskrun_core::ChatRole::Assistant => ChatRole::Assistant,
+            taskrun_core::ChatRole::System => ChatRole::System,
+        },
+        content: m.content.clone(),
+        timestamp: m.timestamp,
+    })
+    .collect();
+
+// Render widget
+ChatWidget::new(&messages)
+    .focused(state.chat_focused)
+    .render(frame, area);
+```
 
 ## Common Flows
 

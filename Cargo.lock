@@ -5347,6 +5347,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskrun-ui"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "ratatui",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "taskrun-worker"
 version = "0.1.0"
 dependencies = [
