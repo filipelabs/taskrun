@@ -147,16 +147,14 @@ impl App {
             }
 
             // Escape - go back from detail views or quit from main views
-            KeyCode::Esc => {
-                match self.state.current_view {
-                    View::WorkerDetail => {
-                        self.state.current_view = View::Workers;
-                    }
-                    _ => {
-                        return true;
-                    }
+            KeyCode::Esc => match self.state.current_view {
+                View::WorkerDetail => {
+                    self.state.current_view = View::Workers;
                 }
-            }
+                _ => {
+                    return true;
+                }
+            },
 
             // View switching with number keys
             KeyCode::Char('1') => {
@@ -191,40 +189,34 @@ impl App {
             }
 
             // Up/Down or j/k navigation
-            KeyCode::Up | KeyCode::Char('k') => {
-                match self.state.current_view {
-                    View::Workers | View::WorkerDetail => {
-                        self.state.select_prev_worker();
-                    }
-                    View::Tasks => {
-                        self.state.select_prev_task();
-                    }
-                    _ => {}
+            KeyCode::Up | KeyCode::Char('k') => match self.state.current_view {
+                View::Workers | View::WorkerDetail => {
+                    self.state.select_prev_worker();
                 }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                match self.state.current_view {
-                    View::Workers | View::WorkerDetail => {
-                        self.state.select_next_worker();
-                    }
-                    View::Tasks => {
-                        self.state.select_next_task();
-                    }
-                    _ => {}
+                View::Tasks => {
+                    self.state.select_prev_task();
                 }
-            }
+                _ => {}
+            },
+            KeyCode::Down | KeyCode::Char('j') => match self.state.current_view {
+                View::Workers | View::WorkerDetail => {
+                    self.state.select_next_worker();
+                }
+                View::Tasks => {
+                    self.state.select_next_task();
+                }
+                _ => {}
+            },
 
             // Enter - view details
-            KeyCode::Enter => {
-                match self.state.current_view {
-                    View::Workers => {
-                        if self.state.selected_worker().is_some() {
-                            self.state.current_view = View::WorkerDetail;
-                        }
+            KeyCode::Enter => match self.state.current_view {
+                View::Workers => {
+                    if self.state.selected_worker().is_some() {
+                        self.state.current_view = View::WorkerDetail;
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
 
             // Refresh / Reconnect
             KeyCode::Char('r') => {
@@ -249,4 +241,3 @@ impl App {
         false
     }
 }
-

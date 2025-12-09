@@ -6,7 +6,10 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::{broadcast, mpsc, RwLock};
 
-use taskrun_core::{ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{
+    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus,
+    WorkerId, WorkerInfo, WorkerStatus,
+};
 use taskrun_proto::pb::RunServerMessage;
 
 use crate::crypto::{BootstrapToken, CertificateAuthority};
@@ -25,9 +28,7 @@ pub enum UiNotification {
         agents: Vec<String>,
     },
     /// A worker disconnected from the control plane.
-    WorkerDisconnected {
-        worker_id: WorkerId,
-    },
+    WorkerDisconnected { worker_id: WorkerId },
     /// A worker sent a heartbeat.
     WorkerHeartbeat {
         worker_id: WorkerId,
@@ -36,15 +37,9 @@ pub enum UiNotification {
         max_concurrent_runs: u32,
     },
     /// A new task was created.
-    TaskCreated {
-        task_id: TaskId,
-        agent: String,
-    },
+    TaskCreated { task_id: TaskId, agent: String },
     /// Task status changed.
-    TaskStatusChanged {
-        task_id: TaskId,
-        status: TaskStatus,
-    },
+    TaskStatusChanged { task_id: TaskId, status: TaskStatus },
     /// Run status changed.
     RunStatusChanged {
         run_id: RunId,
@@ -192,7 +187,9 @@ impl AppState {
 
     /// Create a new AppState with UI notification channel.
     /// Returns the AppState and a receiver for notifications.
-    pub fn with_ui_channel(ca: Option<CertificateAuthority>) -> (Arc<Self>, broadcast::Receiver<UiNotification>) {
+    pub fn with_ui_channel(
+        ca: Option<CertificateAuthority>,
+    ) -> (Arc<Self>, broadcast::Receiver<UiNotification>) {
         let (tx, rx) = broadcast::channel(256);
         let state = Arc::new(Self {
             workers: RwLock::new(HashMap::new()),

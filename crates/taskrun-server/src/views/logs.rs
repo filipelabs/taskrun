@@ -1,10 +1,10 @@
 //! Logs view.
 
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 use crate::event::LogLevel;
 use crate::state::ServerUiState;

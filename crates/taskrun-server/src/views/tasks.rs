@@ -1,9 +1,9 @@
 //! Tasks view.
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use ratatui::Frame;
 
 use taskrun_core::TaskStatus;
 
@@ -71,12 +71,12 @@ pub fn render_tasks_view(f: &mut Frame, state: &ServerUiState, area: Rect) {
         .collect();
 
     let widths = [
-        Constraint::Length(10),  // Task ID
-        Constraint::Length(20),  // Agent
-        Constraint::Length(12),  // Status
-        Constraint::Length(12),  // Created
-        Constraint::Length(6),   // Runs
-        Constraint::Min(12),     // Latest Run
+        Constraint::Length(10), // Task ID
+        Constraint::Length(20), // Agent
+        Constraint::Length(12), // Status
+        Constraint::Length(12), // Created
+        Constraint::Length(6),  // Runs
+        Constraint::Min(12),    // Latest Run
     ];
 
     let table = Table::new(rows, widths)

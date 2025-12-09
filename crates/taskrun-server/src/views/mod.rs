@@ -1,12 +1,12 @@
 //! View implementations.
 
-mod workers;
-mod tasks;
+pub mod dialogs;
 mod logs;
 mod run_detail;
-pub mod dialogs;
+mod tasks;
+mod workers;
 
-pub use workers::render_workers_view;
-pub use tasks::render_tasks_view;
 pub use logs::render_logs_view;
 pub use run_detail::render_run_detail_view;
+pub use tasks::render_tasks_view;
+pub use workers::render_workers_view;

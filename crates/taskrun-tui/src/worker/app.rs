@@ -16,7 +16,6 @@ use super::state::{
     ConnectionState, DetailPane, LogLevel, RunInfo, WorkerConfig, WorkerUiState, WorkerView,
 };
 
-
 /// Main entry point for the worker TUI.
 pub fn run_worker_tui(config: WorkerConfig) -> Result<(), Box<dyn Error>> {
     // Initialize terminal (enters alternate screen, enables raw mode)
@@ -84,7 +83,10 @@ fn run_app_with_setup(
 }
 
 /// Run the worker app after setup is complete.
-fn run_worker_app(config: WorkerConfig, mut terminal: DefaultTerminal) -> Result<(), Box<dyn Error>> {
+fn run_worker_app(
+    config: WorkerConfig,
+    mut terminal: DefaultTerminal,
+) -> Result<(), Box<dyn Error>> {
     // Create channels for UI <-> backend communication
     let (ui_tx, ui_rx) = mpsc::channel::<WorkerUiEvent>(100);
     let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCommand>(100);
@@ -97,7 +99,12 @@ fn run_worker_app(config: WorkerConfig, mut terminal: DefaultTerminal) -> Result
     let worker_id_clone = worker_id.clone();
     let bg_handle = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(run_worker_backend(config_clone, worker_id_clone, ui_tx, cmd_rx));
+        rt.block_on(run_worker_backend(
+            config_clone,
+            worker_id_clone,
+            ui_tx,
+            cmd_rx,
+        ));
     });
 
     // Run UI loop on main thread
@@ -200,11 +207,21 @@ impl WorkerApp {
             }
             WorkerUiEvent::RunProgress { run_id, output } => {
                 // Update the run's output (stored with 50KB cap)
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.append_output(&output);
                 }
                 // Also update completed runs (for viewing history)
-                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .completed_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.append_output(&output);
                 }
             }
@@ -214,9 +231,18 @@ impl WorkerApp {
                 details,
             } => {
                 // Add event to the run
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.add_event(event_type, details);
-                } else if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id)
+                } else if let Some(run) = self
+                    .state
+                    .completed_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
                 {
                     run.add_event(event_type, details);
                 }
@@ -227,12 +253,18 @@ impl WorkerApp {
                 error_message,
             } => {
                 // Finalize streaming output as assistant message before completing
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.finalize_output();
                 }
                 self.state.complete_run(&run_id, success);
                 if let Some(error) = error_message {
-                    self.state.add_log(LogLevel::Error, format!("Run {} failed: {}", run_id, error));
+                    self.state
+                        .add_log(LogLevel::Error, format!("Run {} failed: {}", run_id, error));
                 }
                 self.update_status();
             }
@@ -245,29 +277,59 @@ impl WorkerApp {
             }
             WorkerUiEvent::SessionCaptured { run_id, session_id } => {
                 // Store session_id in the run for continuation support
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.session_id = Some(session_id.clone());
                 }
                 // Also check completed runs (session may arrive after completion)
-                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .completed_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.session_id = Some(session_id);
                 }
             }
             WorkerUiEvent::TurnCompleted { run_id } => {
                 // Finalize current output as assistant message (for continuation turns)
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.finalize_output();
                 }
-                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .completed_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.finalize_output();
                 }
             }
             WorkerUiEvent::UserMessageAdded { run_id, message } => {
                 // Add user message to the run's chat history
-                if let Some(run) = self.state.active_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .active_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.add_user_message(message.clone());
                 }
-                if let Some(run) = self.state.completed_runs.iter_mut().find(|r| r.run_id == run_id) {
+                if let Some(run) = self
+                    .state
+                    .completed_runs
+                    .iter_mut()
+                    .find(|r| r.run_id == run_id)
+                {
                     run.add_user_message(message);
                 }
             }
@@ -364,42 +426,41 @@ impl WorkerApp {
             }
 
             // Up/Down or j/k navigation
-            KeyCode::Up | KeyCode::Char('k') => {
-                match self.state.current_view {
-                    WorkerView::Runs => {
-                        if self.state.selected_run_index > 0 {
-                            self.state.selected_run_index -= 1;
-                        }
+            KeyCode::Up | KeyCode::Char('k') => match self.state.current_view {
+                WorkerView::Runs => {
+                    if self.state.selected_run_index > 0 {
+                        self.state.selected_run_index -= 1;
                     }
-                    WorkerView::Logs => {
-                        if self.state.log_scroll_offset > 0 {
-                            self.state.log_scroll_offset -= 1;
-                        }
-                    }
-                    _ => {}
                 }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                match self.state.current_view {
-                    WorkerView::Runs => {
-                        let total = self.state.active_runs.len() + self.state.completed_runs.len();
-                        if self.state.selected_run_index < total.saturating_sub(1) {
-                            self.state.selected_run_index += 1;
-                        }
+                WorkerView::Logs => {
+                    if self.state.log_scroll_offset > 0 {
+                        self.state.log_scroll_offset -= 1;
                     }
-                    WorkerView::Logs => {
-                        let max_scroll = self.state.log_messages.len().saturating_sub(20);
-                        if self.state.log_scroll_offset < max_scroll {
-                            self.state.log_scroll_offset += 1;
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
+            KeyCode::Down | KeyCode::Char('j') => match self.state.current_view {
+                WorkerView::Runs => {
+                    let total = self.state.active_runs.len() + self.state.completed_runs.len();
+                    if self.state.selected_run_index < total.saturating_sub(1) {
+                        self.state.selected_run_index += 1;
+                    }
+                }
+                WorkerView::Logs => {
+                    let max_scroll = self.state.log_messages.len().saturating_sub(20);
+                    if self.state.log_scroll_offset < max_scroll {
+                        self.state.log_scroll_offset += 1;
+                    }
+                }
+                _ => {}
+            },
 
             // Reconnect
             KeyCode::Char('r') => {
-                if matches!(self.state.connection_state, ConnectionState::Disconnected { .. }) {
+                if matches!(
+                    self.state.connection_state,
+                    ConnectionState::Disconnected { .. }
+                ) {
                     let _ = self.cmd_tx.blocking_send(WorkerCommand::ForceReconnect);
                 }
             }
@@ -442,13 +503,18 @@ impl WorkerApp {
                     self.state.new_run_cursor = 0;
 
                     // Send command to create task
-                    let _ = self.cmd_tx.blocking_send(WorkerCommand::CreateTask { prompt });
-                    self.state.add_log(LogLevel::Info, "Creating new task...".to_string());
+                    let _ = self
+                        .cmd_tx
+                        .blocking_send(WorkerCommand::CreateTask { prompt });
+                    self.state
+                        .add_log(LogLevel::Info, "Creating new task...".to_string());
                 }
             }
             // Character input (unicode-safe)
             KeyCode::Char(c) => {
-                let byte_idx = self.state.new_run_prompt
+                let byte_idx = self
+                    .state
+                    .new_run_prompt
                     .char_indices()
                     .nth(self.state.new_run_cursor)
                     .map(|(i, _)| i)
@@ -460,11 +526,15 @@ impl WorkerApp {
             KeyCode::Backspace => {
                 if self.state.new_run_cursor > 0 {
                     self.state.new_run_cursor -= 1;
-                    if let Some((byte_idx, ch)) = self.state.new_run_prompt
+                    if let Some((byte_idx, ch)) = self
+                        .state
+                        .new_run_prompt
                         .char_indices()
                         .nth(self.state.new_run_cursor)
                     {
-                        self.state.new_run_prompt.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                        self.state
+                            .new_run_prompt
+                            .replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
                     }
                 }
             }
@@ -472,11 +542,15 @@ impl WorkerApp {
             KeyCode::Delete => {
                 let char_count = self.state.new_run_prompt.chars().count();
                 if self.state.new_run_cursor < char_count {
-                    if let Some((byte_idx, ch)) = self.state.new_run_prompt
+                    if let Some((byte_idx, ch)) = self
+                        .state
+                        .new_run_prompt
                         .char_indices()
                         .nth(self.state.new_run_cursor)
                     {
-                        self.state.new_run_prompt.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                        self.state
+                            .new_run_prompt
+                            .replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
                     }
                 }
             }
@@ -520,7 +594,9 @@ impl WorkerApp {
                         let message = self.state.chat_input.clone();
 
                         // Check if we can send immediately (have session_id)
-                        let can_send = self.state.get_viewing_run()
+                        let can_send = self
+                            .state
+                            .get_viewing_run()
                             .map(|r| r.session_id.is_some())
                             .unwrap_or(false);
 
@@ -547,7 +623,10 @@ impl WorkerApp {
                                 });
                                 self.state.add_log(
                                     LogLevel::Info,
-                                    format!("Continuing session {}", &session_id[..8.min(session_id.len())]),
+                                    format!(
+                                        "Continuing session {}",
+                                        &session_id[..8.min(session_id.len())]
+                                    ),
                                 );
                             }
                         } else {
@@ -569,7 +648,9 @@ impl WorkerApp {
 
                 // Character input (unicode-safe)
                 KeyCode::Char(c) => {
-                    let byte_idx = self.state.chat_input
+                    let byte_idx = self
+                        .state
+                        .chat_input
                         .char_indices()
                         .nth(self.state.chat_input_cursor)
                         .map(|(i, _)| i)
@@ -582,11 +663,15 @@ impl WorkerApp {
                 KeyCode::Backspace => {
                     if self.state.chat_input_cursor > 0 {
                         self.state.chat_input_cursor -= 1;
-                        if let Some((byte_idx, ch)) = self.state.chat_input
+                        if let Some((byte_idx, ch)) = self
+                            .state
+                            .chat_input
                             .char_indices()
                             .nth(self.state.chat_input_cursor)
                         {
-                            self.state.chat_input.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                            self.state
+                                .chat_input
+                                .replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
                         }
                     }
                 }
@@ -595,11 +680,15 @@ impl WorkerApp {
                 KeyCode::Delete => {
                     let char_count = self.state.chat_input.chars().count();
                     if self.state.chat_input_cursor < char_count {
-                        if let Some((byte_idx, ch)) = self.state.chat_input
+                        if let Some((byte_idx, ch)) = self
+                            .state
+                            .chat_input
                             .char_indices()
                             .nth(self.state.chat_input_cursor)
                         {
-                            self.state.chat_input.replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
+                            self.state
+                                .chat_input
+                                .replace_range(byte_idx..byte_idx + ch.len_utf8(), "");
                         }
                     }
                 }
@@ -667,17 +756,15 @@ impl WorkerApp {
             }
 
             // Switch pane / focus input
-            KeyCode::Tab => {
-                match self.state.detail_pane {
-                    DetailPane::Output => {
-                        self.state.detail_pane = DetailPane::Events;
-                    }
-                    DetailPane::Events => {
-                        self.state.detail_pane = DetailPane::Output;
-                        self.state.input_focused = true;
-                    }
+            KeyCode::Tab => match self.state.detail_pane {
+                DetailPane::Output => {
+                    self.state.detail_pane = DetailPane::Events;
                 }
-            }
+                DetailPane::Events => {
+                    self.state.detail_pane = DetailPane::Output;
+                    self.state.input_focused = true;
+                }
+            },
 
             // Enter focuses input (or 'i' like vim)
             KeyCode::Enter | KeyCode::Char('i') => {
@@ -705,60 +792,52 @@ impl WorkerApp {
             }
 
             // Scroll down
-            KeyCode::Down | KeyCode::Char('j') => {
-                match self.state.detail_pane {
-                    DetailPane::Output => {
-                        if self.state.chat_scroll != usize::MAX {
-                            self.state.chat_scroll = self.state.chat_scroll.saturating_add(1);
-                        }
-                    }
-                    DetailPane::Events => {
-                        self.state.events_scroll += 1;
+            KeyCode::Down | KeyCode::Char('j') => match self.state.detail_pane {
+                DetailPane::Output => {
+                    if self.state.chat_scroll != usize::MAX {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_add(1);
                     }
                 }
-            }
+                DetailPane::Events => {
+                    self.state.events_scroll += 1;
+                }
+            },
 
             // Page up
-            KeyCode::PageUp => {
-                match self.state.detail_pane {
-                    DetailPane::Output => {
-                        if self.state.chat_scroll == usize::MAX {
-                            self.state.chat_scroll = usize::MAX - 1;
-                        } else {
-                            self.state.chat_scroll = self.state.chat_scroll.saturating_sub(20);
-                        }
-                    }
-                    DetailPane::Events => {
-                        self.state.events_scroll = self.state.events_scroll.saturating_sub(20);
+            KeyCode::PageUp => match self.state.detail_pane {
+                DetailPane::Output => {
+                    if self.state.chat_scroll == usize::MAX {
+                        self.state.chat_scroll = usize::MAX - 1;
+                    } else {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_sub(20);
                     }
                 }
-            }
+                DetailPane::Events => {
+                    self.state.events_scroll = self.state.events_scroll.saturating_sub(20);
+                }
+            },
 
             // Page down
-            KeyCode::PageDown => {
-                match self.state.detail_pane {
-                    DetailPane::Output => {
-                        if self.state.chat_scroll != usize::MAX {
-                            self.state.chat_scroll = self.state.chat_scroll.saturating_add(20);
-                        }
-                    }
-                    DetailPane::Events => {
-                        self.state.events_scroll += 20;
+            KeyCode::PageDown => match self.state.detail_pane {
+                DetailPane::Output => {
+                    if self.state.chat_scroll != usize::MAX {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_add(20);
                     }
                 }
-            }
+                DetailPane::Events => {
+                    self.state.events_scroll += 20;
+                }
+            },
 
             // Home - scroll to top
-            KeyCode::Home | KeyCode::Char('g') => {
-                match self.state.detail_pane {
-                    DetailPane::Output => {
-                        self.state.chat_scroll = 0;
-                    }
-                    DetailPane::Events => {
-                        self.state.events_scroll = 0;
-                    }
+            KeyCode::Home | KeyCode::Char('g') => match self.state.detail_pane {
+                DetailPane::Output => {
+                    self.state.chat_scroll = 0;
                 }
-            }
+                DetailPane::Events => {
+                    self.state.events_scroll = 0;
+                }
+            },
 
             // End - scroll to bottom (auto-scroll mode for chat)
             KeyCode::End | KeyCode::Char('G') => {

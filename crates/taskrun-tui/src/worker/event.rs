@@ -24,10 +24,7 @@ pub enum WorkerUiEvent {
         input: String,
     },
     /// Output from a run (streaming).
-    RunProgress {
-        run_id: String,
-        output: String,
-    },
+    RunProgress { run_id: String, output: String },
     /// A run completed.
     RunCompleted {
         run_id: String,
@@ -41,28 +38,15 @@ pub enum WorkerUiEvent {
         details: Option<String>,
     },
     /// Log message from the worker.
-    LogMessage {
-        level: LogLevel,
-        message: String,
-    },
+    LogMessage { level: LogLevel, message: String },
     /// Worker stats updated.
-    StatsUpdated {
-        active_runs: u32,
-    },
+    StatsUpdated { active_runs: u32 },
     /// Session ID captured for a run (enables continuation).
-    SessionCaptured {
-        run_id: String,
-        session_id: String,
-    },
+    SessionCaptured { run_id: String, session_id: String },
     /// A continuation turn completed (finalize output as assistant message).
-    TurnCompleted {
-        run_id: String,
-    },
+    TurnCompleted { run_id: String },
     /// A user message was added to a run (from server or local input).
-    UserMessageAdded {
-        run_id: String,
-        message: String,
-    },
+    UserMessageAdded { run_id: String, message: String },
     /// Request to quit.
     Quit,
 }
@@ -79,9 +63,7 @@ pub enum WorkerCommand {
         message: String,
     },
     /// Create a new task.
-    CreateTask {
-        prompt: String,
-    },
+    CreateTask { prompt: String },
     /// Quit the worker.
     Quit,
 }

@@ -55,46 +55,48 @@ pub async fn run_backend(
         info!(endpoint = %endpoint, "Attempting to connect to control plane");
 
         // Try to connect
-        let client = match AdminClient::connect(&endpoint, ca_cert.as_deref(), client_identity.as_ref()).await {
-            Ok(c) => {
-                info!("Connected to control plane");
-                // Reset backoff on successful connection
-                backoff = INITIAL_BACKOFF;
-                // Notify UI we're connected
-                let _ = ui_tx
-                    .send(UiEvent::ConnectionStateChanged(ConnectionState::Connected))
-                    .await;
-                c
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to connect to control plane");
-                let _ = ui_tx
-                    .send(UiEvent::Error(format!("Connection failed: {}", e)))
-                    .await;
-
-                // Notify UI of disconnected state with retry time
-                let _ = ui_tx
-                    .send(UiEvent::ConnectionStateChanged(
-                        ConnectionState::Disconnected { retry_in: backoff },
-                    ))
-                    .await;
-
-                // Wait with backoff, but check for commands (Quit or ForceReconnect)
-                if wait_with_commands(&mut cmd_rx, backoff).await {
-                    // Quit command received
-                    info!("Received quit command during backoff, shutting down");
-                    return;
+        let client =
+            match AdminClient::connect(&endpoint, ca_cert.as_deref(), client_identity.as_ref())
+                .await
+            {
+                Ok(c) => {
+                    info!("Connected to control plane");
+                    // Reset backoff on successful connection
+                    backoff = INITIAL_BACKOFF;
+                    // Notify UI we're connected
+                    let _ = ui_tx
+                        .send(UiEvent::ConnectionStateChanged(ConnectionState::Connected))
+                        .await;
+                    c
                 }
+                Err(e) => {
+                    error!(error = %e, "Failed to connect to control plane");
+                    let _ = ui_tx
+                        .send(UiEvent::Error(format!("Connection failed: {}", e)))
+                        .await;
 
-                // Increase backoff for next attempt
-                backoff = next_backoff(backoff);
-                continue;
-            }
-        };
+                    // Notify UI of disconnected state with retry time
+                    let _ = ui_tx
+                        .send(UiEvent::ConnectionStateChanged(
+                            ConnectionState::Disconnected { retry_in: backoff },
+                        ))
+                        .await;
+
+                    // Wait with backoff, but check for commands (Quit or ForceReconnect)
+                    if wait_with_commands(&mut cmd_rx, backoff).await {
+                        // Quit command received
+                        info!("Received quit command during backoff, shutting down");
+                        return;
+                    }
+
+                    // Increase backoff for next attempt
+                    backoff = next_backoff(backoff);
+                    continue;
+                }
+            };
 
         // Run the poll loop - returns when disconnected or quit requested
-        let should_quit =
-            run_poll_loop(client, refresh_interval, &ui_tx, &mut cmd_rx).await;
+        let should_quit = run_poll_loop(client, refresh_interval, &ui_tx, &mut cmd_rx).await;
 
         if should_quit {
             info!("Backend shutdown complete");

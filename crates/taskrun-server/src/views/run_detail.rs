@@ -1,10 +1,10 @@
 //! Run detail view.
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::Frame;
 
 use taskrun_core::{ChatRole, TaskStatus};
 
@@ -67,8 +67,8 @@ fn render_task_header(f: &mut Frame, state: &ServerUiState, area: Rect) {
         ]),
     ];
 
-    let paragraph = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(" Task Info "));
+    let paragraph =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Task Info "));
 
     f.render_widget(paragraph, area);
 }
@@ -134,7 +134,9 @@ fn render_output(f: &mut Frame, state: &ServerUiState, area: Rect) {
         // Auto-scroll to bottom
         line_count.saturating_sub(inner_height)
     } else {
-        state.run_scroll.min(line_count.saturating_sub(inner_height))
+        state
+            .run_scroll
+            .min(line_count.saturating_sub(inner_height))
     };
 
     // Style lines based on role
@@ -163,7 +165,12 @@ fn render_output(f: &mut Frame, state: &ServerUiState, area: Rect) {
         String::new()
     };
 
-    let title = format!(" Chat (Run: {}) [{} msgs]{}", &run_id.to_string()[..8], message_count, scroll_indicator);
+    let title = format!(
+        " Chat (Run: {}) [{} msgs]{}",
+        &run_id.to_string()[..8],
+        message_count,
+        scroll_indicator
+    );
 
     let paragraph = Paragraph::new(visible_lines)
         .block(Block::default().borders(Borders::ALL).title(title))
@@ -183,13 +190,12 @@ fn render_input(f: &mut Frame, state: &ServerUiState, area: Rect) {
         Span::raw(&state.chat_input)
     };
 
-    let paragraph = Paragraph::new(Line::from(input_text))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(border_style)
-                .title(title),
-        );
+    let paragraph = Paragraph::new(Line::from(input_text)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(title),
+    );
 
     f.render_widget(paragraph, area);
 

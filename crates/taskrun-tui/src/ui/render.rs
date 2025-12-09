@@ -95,9 +95,7 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect, state: &UiState
         ),
         ConnectionState::Disconnected { retry_in } => Span::styled(
             format!("[ DISCONNECTED - {}s ] ", retry_in.as_secs()),
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ),
     };
 
@@ -181,11 +179,7 @@ fn render_workers_view(state: &UiState) -> Paragraph<'static> {
             };
 
             // Get agent names from worker
-            let agents: Vec<String> = worker
-                .agents
-                .iter()
-                .map(|a| a.name.clone())
-                .collect();
+            let agents: Vec<String> = worker.agents.iter().map(|a| a.name.clone()).collect();
             let agents_str = if agents.is_empty() {
                 "-".to_string()
             } else {

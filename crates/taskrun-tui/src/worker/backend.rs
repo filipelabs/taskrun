@@ -83,7 +83,12 @@ pub async fn run_worker_backend(
                 }
                 // Connection closed gracefully (server disconnected)
                 info!("Connection closed by server");
-                log_to_ui(&ui_tx, LogLevel::Warn, "Connection closed by server".to_string()).await;
+                log_to_ui(
+                    &ui_tx,
+                    LogLevel::Warn,
+                    "Connection closed by server".to_string(),
+                )
+                .await;
             }
             Err(e) => {
                 error!(error = %e, "Connection error");
@@ -108,7 +113,12 @@ pub async fn run_worker_backend(
                 }
                 WorkerCommand::CreateTask { .. } => {
                     // Ignore - can't create task while not connected
-                    log_to_ui(&ui_tx, LogLevel::Warn, "Cannot create task: not connected".to_string()).await;
+                    log_to_ui(
+                        &ui_tx,
+                        LogLevel::Warn,
+                        "Cannot create task: not connected".to_string(),
+                    )
+                    .await;
                 }
             }
         }
@@ -179,5 +189,7 @@ async fn wait_with_commands(
 
 /// Helper to log a message to the UI.
 async fn log_to_ui(ui_tx: &mpsc::Sender<WorkerUiEvent>, level: LogLevel, message: String) {
-    let _ = ui_tx.send(WorkerUiEvent::LogMessage { level, message }).await;
+    let _ = ui_tx
+        .send(WorkerUiEvent::LogMessage { level, message })
+        .await;
 }

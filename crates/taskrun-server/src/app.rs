@@ -4,8 +4,8 @@ use std::io;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use ratatui::Terminal;
 use ratatui::backend::Backend;
+use ratatui::Terminal;
 use tokio::sync::mpsc;
 
 use crate::event::{LogLevel, ServerCommand, ServerUiEvent};
@@ -58,7 +58,10 @@ impl ServerApp {
 
     fn apply_event(&mut self, event: ServerUiEvent) {
         match event {
-            ServerUiEvent::ServerStarted { grpc_addr, http_addr } => {
+            ServerUiEvent::ServerStarted {
+                grpc_addr,
+                http_addr,
+            } => {
                 self.state.server_status = ServerStatus::Running;
                 self.state.grpc_addr = grpc_addr;
                 self.state.http_addr = http_addr;
@@ -68,7 +71,11 @@ impl ServerApp {
                 self.state.error_message = Some(message.clone());
                 self.state.add_log(LogLevel::Error, message);
             }
-            ServerUiEvent::WorkerConnected { worker_id, hostname, agents } => {
+            ServerUiEvent::WorkerConnected {
+                worker_id,
+                hostname,
+                agents,
+            } => {
                 let info = WorkerDisplayInfo {
                     worker_id: worker_id.clone(),
                     hostname,
@@ -80,13 +87,22 @@ impl ServerApp {
                     last_heartbeat: chrono::Utc::now(),
                 };
                 self.state.workers.insert(worker_id.clone(), info);
-                self.state.add_log(LogLevel::Info, format!("Worker connected: {}", worker_id));
+                self.state
+                    .add_log(LogLevel::Info, format!("Worker connected: {}", worker_id));
             }
             ServerUiEvent::WorkerDisconnected { worker_id } => {
                 self.state.workers.remove(&worker_id);
-                self.state.add_log(LogLevel::Info, format!("Worker disconnected: {}", worker_id));
+                self.state.add_log(
+                    LogLevel::Info,
+                    format!("Worker disconnected: {}", worker_id),
+                );
             }
-            ServerUiEvent::WorkerHeartbeat { worker_id, status, active_runs, max_concurrent_runs } => {
+            ServerUiEvent::WorkerHeartbeat {
+                worker_id,
+                status,
+                active_runs,
+                max_concurrent_runs,
+            } => {
                 if let Some(worker) = self.state.workers.get_mut(&worker_id) {
                     worker.status = status;
                     worker.active_runs = active_runs;
@@ -107,7 +123,8 @@ impl ServerApp {
                 self.state.tasks.insert(task_id.clone(), info);
                 self.state.task_list.insert(0, task_id.clone()); // Most recent first
                 self.state.total_tasks += 1;
-                self.state.add_log(LogLevel::Info, format!("Task created: {}", task_id));
+                self.state
+                    .add_log(LogLevel::Info, format!("Task created: {}", task_id));
             }
             ServerUiEvent::TaskStatusChanged { task_id, status } => {
                 if let Some(task) = self.state.tasks.get_mut(&task_id) {
@@ -119,7 +136,11 @@ impl ServerApp {
                     }
                 }
             }
-            ServerUiEvent::RunStatusChanged { run_id, task_id, status } => {
+            ServerUiEvent::RunStatusChanged {
+                run_id,
+                task_id,
+                status,
+            } => {
                 if let Some(task) = self.state.tasks.get_mut(&task_id) {
                     task.run_count += 1;
                     task.latest_run_id = Some(run_id);
@@ -127,14 +148,21 @@ impl ServerApp {
                 }
             }
             ServerUiEvent::RunOutputChunk { run_id, content } => {
-                self.state.run_output
+                self.state
+                    .run_output
                     .entry(run_id)
                     .or_default()
                     .push_str(&content);
             }
-            ServerUiEvent::ChatMessage { run_id, role, content, .. } => {
+            ServerUiEvent::ChatMessage {
+                run_id,
+                role,
+                content,
+                ..
+            } => {
                 use crate::state::ChatEntry;
-                self.state.run_chat
+                self.state
+                    .run_chat
                     .entry(run_id)
                     .or_default()
                     .push(ChatEntry {
@@ -280,7 +308,8 @@ impl ServerApp {
         match code {
             KeyCode::Char('j') | KeyCode::Down => {
                 if log_count > 0 {
-                    self.state.log_scroll = (self.state.log_scroll + 1).min(log_count.saturating_sub(1));
+                    self.state.log_scroll =
+                        (self.state.log_scroll + 1).min(log_count.saturating_sub(1));
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -361,7 +390,9 @@ impl ServerApp {
             }
             // Character input
             KeyCode::Char(c) => {
-                let byte_pos = self.state.chat_input
+                let byte_pos = self
+                    .state
+                    .chat_input
                     .char_indices()
                     .nth(self.state.chat_input_cursor)
                     .map(|(i, _)| i)
@@ -373,12 +404,16 @@ impl ServerApp {
                 if self.state.chat_input_cursor > 0 {
                     let char_count = self.state.chat_input.chars().count();
                     if self.state.chat_input_cursor <= char_count {
-                        let byte_pos = self.state.chat_input
+                        let byte_pos = self
+                            .state
+                            .chat_input
                             .char_indices()
                             .nth(self.state.chat_input_cursor - 1)
                             .map(|(i, _)| i);
                         if let Some(start) = byte_pos {
-                            let end = self.state.chat_input
+                            let end = self
+                                .state
+                                .chat_input
                                 .char_indices()
                                 .nth(self.state.chat_input_cursor)
                                 .map(|(i, _)| i)

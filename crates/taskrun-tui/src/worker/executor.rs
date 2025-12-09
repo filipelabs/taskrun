@@ -328,8 +328,8 @@ impl ClaudeCodeExecutor {
         } else {
             PermissionMode::Default
         };
-        let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
-            .with_permission_mode(permission_mode);
+        let mut sdk_executor =
+            ClaudeExecutor::new(&self.config.claude_path).with_permission_mode(permission_mode);
 
         // Apply tool permissions from config
         if let Some(ref allowed) = self.config.allowed_tools {
@@ -413,8 +413,8 @@ impl ClaudeCodeExecutor {
         } else {
             PermissionMode::Default
         };
-        let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
-            .with_permission_mode(permission_mode);
+        let mut sdk_executor =
+            ClaudeExecutor::new(&self.config.claude_path).with_permission_mode(permission_mode);
 
         // Apply tool permissions from config
         if let Some(ref allowed) = self.config.allowed_tools {

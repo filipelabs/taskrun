@@ -18,8 +18,8 @@ use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
     ChatMessage as ProtoChatMessage, ChatRole as ProtoChatRole, CreateTaskRequest, RunAssignment,
-    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunStatusUpdate,
-    WorkerHeartbeat, WorkerHello,
+    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunStatusUpdate, WorkerHeartbeat,
+    WorkerHello,
 };
 use taskrun_proto::{RunServiceClient, TaskServiceClient};
 
@@ -121,7 +121,13 @@ impl WorkerConnection {
         &mut self,
         cmd_rx: &mut mpsc::Receiver<WorkerCommand>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        self.log(LogLevel::Info, format!("Connecting to control plane at {}", self.config.control_plane_addr));
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Connecting to control plane at {}",
+                self.config.control_plane_addr
+            ),
+        );
 
         // Load CA certificate for pinned trust
         let ca_cert = std::fs::read(&self.config.tls_ca_cert_path).map_err(|e| {
@@ -168,7 +174,10 @@ impl WorkerConnection {
         let response = client.stream_connect(outbound_stream).await?;
         let mut inbound = response.into_inner();
 
-        self.log(LogLevel::Info, "Connected to control plane, sending WorkerHello".to_string());
+        self.log(
+            LogLevel::Info,
+            "Connected to control plane, sending WorkerHello".to_string(),
+        );
 
         // Notify UI we're connected
         let _ = self
@@ -236,7 +245,10 @@ impl WorkerConnection {
         heartbeat_handle.abort();
         self.outbound_tx = None;
 
-        self.log(LogLevel::Info, "Disconnected from control plane".to_string());
+        self.log(
+            LogLevel::Info,
+            "Disconnected from control plane".to_string(),
+        );
         Ok(quit_requested)
     }
 
@@ -266,14 +278,19 @@ impl WorkerConnection {
     ) {
         self.log(
             LogLevel::Info,
-            format!("Continuing run {} with session {}", run_id, &session_id[..8.min(session_id.len())]),
+            format!(
+                "Continuing run {} with session {}",
+                run_id,
+                &session_id[..8.min(session_id.len())]
+            ),
         );
 
         // Send user message to server as ChatMessage
         send_chat_message(&tx, &run_id, ProtoChatRole::User, message.clone()).await;
 
         // Notify UI that run is active again
-        let _ = self.ui_tx
+        let _ = self
+            .ui_tx
             .send(WorkerUiEvent::RunProgress {
                 run_id: run_id.clone(),
                 output: String::new(), // Will be populated by streaming
@@ -356,7 +373,8 @@ impl WorkerConnection {
             Ok(exec_result) => {
                 // Send new session_id if changed
                 if let Some(new_session_id) = &exec_result.session_id {
-                    let _ = self.ui_tx
+                    let _ = self
+                        .ui_tx
                         .send(WorkerUiEvent::SessionCaptured {
                             run_id: run_id.clone(),
                             session_id: new_session_id.clone(),
@@ -365,17 +383,22 @@ impl WorkerConnection {
                 }
 
                 // Notify UI that turn is complete (finalize output as assistant message)
-                let _ = self.ui_tx
+                let _ = self
+                    .ui_tx
                     .send(WorkerUiEvent::TurnCompleted {
                         run_id: run_id.clone(),
                     })
                     .await;
 
-                self.log(LogLevel::Info, format!("Continuation completed for run {}", run_id));
+                self.log(
+                    LogLevel::Info,
+                    format!("Continuation completed for run {}", run_id),
+                );
             }
             Err(e) => {
                 self.log(LogLevel::Error, format!("Continuation failed: {}", e));
-                let _ = self.ui_tx
+                let _ = self
+                    .ui_tx
                     .send(WorkerUiEvent::LogMessage {
                         level: LogLevel::Error,
                         message: format!("Failed to continue session: {}", e),
@@ -387,12 +410,19 @@ impl WorkerConnection {
 
     /// Handle a CreateTask command - create a new task via the TaskService API.
     async fn handle_create_task(&self, prompt: String) {
-        self.log(LogLevel::Info, format!("Creating new task with prompt: {}", &prompt[..50.min(prompt.len())]));
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Creating new task with prompt: {}",
+                &prompt[..50.min(prompt.len())]
+            ),
+        );
 
         // Build JSON input
         let input_json = serde_json::json!({
             "prompt": prompt
-        }).to_string();
+        })
+        .to_string();
 
         // Create the request
         let request = CreateTaskRequest {
@@ -404,28 +434,31 @@ impl WorkerConnection {
 
         // Connect to TaskService (reuse TLS config)
         match self.create_task_client().await {
-            Ok(mut client) => {
-                match client.create_task(request).await {
-                    Ok(response) => {
-                        let task = response.into_inner();
-                        self.log(
-                            LogLevel::Info,
-                            format!("Task created: id={}, agent={}", task.id, task.agent_name),
-                        );
-                    }
-                    Err(e) => {
-                        self.log(LogLevel::Error, format!("Failed to create task: {}", e));
-                    }
+            Ok(mut client) => match client.create_task(request).await {
+                Ok(response) => {
+                    let task = response.into_inner();
+                    self.log(
+                        LogLevel::Info,
+                        format!("Task created: id={}, agent={}", task.id, task.agent_name),
+                    );
                 }
-            }
+                Err(e) => {
+                    self.log(LogLevel::Error, format!("Failed to create task: {}", e));
+                }
+            },
             Err(e) => {
-                self.log(LogLevel::Error, format!("Failed to connect to TaskService: {}", e));
+                self.log(
+                    LogLevel::Error,
+                    format!("Failed to connect to TaskService: {}", e),
+                );
             }
         }
     }
 
     /// Create a TaskService client with the same TLS config.
-    async fn create_task_client(&self) -> Result<TaskServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_task_client(
+        &self,
+    ) -> Result<TaskServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
         let ca_cert = std::fs::read(&self.config.tls_ca_cert_path)?;
         let client_cert = std::fs::read(&self.config.tls_cert_path)?;
         let client_key = std::fs::read(&self.config.tls_key_path)?;
@@ -463,7 +496,11 @@ impl WorkerConnection {
             .with_label("env", "development")
     }
 
-    async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage, tx: mpsc::Sender<RunClientMessage>) {
+    async fn handle_server_message(
+        &self,
+        msg: taskrun_proto::pb::RunServerMessage,
+        tx: mpsc::Sender<RunClientMessage>,
+    ) {
         if let Some(payload) = msg.payload {
             match payload {
                 ServerPayload::AssignRun(assignment) => {
@@ -493,7 +530,8 @@ impl WorkerConnection {
                     let sessions = self.sessions.clone();
 
                     tokio::spawn(async move {
-                        execute_real_run(executor, tx, assignment, active_count, ui_tx, sessions).await;
+                        execute_real_run(executor, tx, assignment, active_count, ui_tx, sessions)
+                            .await;
                     });
                 }
                 ServerPayload::CancelRun(cancel) => {
@@ -521,7 +559,8 @@ impl WorkerConnection {
                     );
 
                     // Add the user message to the UI chat history
-                    let _ = self.ui_tx
+                    let _ = self
+                        .ui_tx
                         .send(WorkerUiEvent::UserMessageAdded {
                             run_id: continue_run.run_id.clone(),
                             message: continue_run.message.clone(),
@@ -542,12 +581,16 @@ impl WorkerConnection {
                                 session_id,
                                 continue_run.message,
                                 tx,
-                            ).await;
+                            )
+                            .await;
                         }
                         None => {
                             self.log(
                                 LogLevel::Error,
-                                format!("No session found for run {}", &continue_run.run_id[..8.min(continue_run.run_id.len())]),
+                                format!(
+                                    "No session found for run {}",
+                                    &continue_run.run_id[..8.min(continue_run.run_id.len())]
+                                ),
                             );
                         }
                     }
@@ -566,7 +609,9 @@ impl WorkerConnection {
         }
 
         // Send to UI (non-blocking)
-        let _ = self.ui_tx.try_send(WorkerUiEvent::LogMessage { level, message });
+        let _ = self
+            .ui_tx
+            .try_send(WorkerUiEvent::LogMessage { level, message });
     }
 }
 
@@ -593,20 +638,24 @@ async fn execute_real_run(
 
     // Increment active run count
     let count = active_count.fetch_add(1, Ordering::SeqCst) + 1;
-    let _ = ui_tx.send(WorkerUiEvent::StatsUpdated { active_runs: count }).await;
+    let _ = ui_tx
+        .send(WorkerUiEvent::StatsUpdated { active_runs: count })
+        .await;
 
     info!(run_id = %run_id, agent = %assignment.agent_name, "Starting real execution via Claude Code");
 
     // Send the initial user message (input_json) as a ChatMessage
     // Extract prompt from input_json if possible, otherwise use the raw JSON
-    let user_message = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&assignment.input_json) {
-        parsed.get("prompt")
-            .and_then(|p| p.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| assignment.input_json.clone())
-    } else {
-        assignment.input_json.clone()
-    };
+    let user_message =
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&assignment.input_json) {
+            parsed
+                .get("prompt")
+                .and_then(|p| p.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| assignment.input_json.clone())
+        } else {
+            assignment.input_json.clone()
+        };
     send_chat_message(&tx, &run_id, ProtoChatRole::User, user_message).await;
 
     // Send RUNNING status
@@ -626,7 +675,10 @@ async fn execute_real_run(
         while let Some(event) = event_rx.recv().await {
             // Forward to UI
             let event_type = format!("{:?}", event.event_type);
-            let details = event.metadata.get("tool_name").cloned()
+            let details = event
+                .metadata
+                .get("tool_name")
+                .cloned()
                 .or_else(|| event.metadata.get("error").cloned());
             let _ = event_ui_tx
                 .send(WorkerUiEvent::RunEvent {
@@ -762,7 +814,9 @@ async fn execute_real_run(
 
     // Decrement active run count
     let count = active_count.fetch_sub(1, Ordering::SeqCst) - 1;
-    let _ = ui_tx.send(WorkerUiEvent::StatsUpdated { active_runs: count }).await;
+    let _ = ui_tx
+        .send(WorkerUiEvent::StatsUpdated { active_runs: count })
+        .await;
 }
 
 /// Send a status update to the control plane.

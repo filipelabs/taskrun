@@ -211,7 +211,8 @@ impl RunInfo {
             if self.messages.len() >= MAX_CHAT_MESSAGES {
                 self.messages.remove(0);
             }
-            self.messages.push(ChatMessage::assistant(self.current_output.clone()));
+            self.messages
+                .push(ChatMessage::assistant(self.current_output.clone()));
             self.current_output.clear();
         }
     }
@@ -359,7 +360,11 @@ impl WorkerUiState {
 
     /// Get the currently selected run (from combined list).
     pub fn get_selected_run(&self) -> Option<&RunInfo> {
-        let all_runs: Vec<_> = self.active_runs.iter().chain(self.completed_runs.iter()).collect();
+        let all_runs: Vec<_> = self
+            .active_runs
+            .iter()
+            .chain(self.completed_runs.iter())
+            .collect();
         all_runs.get(self.selected_run_index).copied()
     }
 
@@ -390,11 +395,7 @@ impl WorkerUiState {
         self.active_runs
             .iter_mut()
             .find(|r| r.run_id == run_id)
-            .or_else(|| {
-                self.completed_runs
-                    .iter_mut()
-                    .find(|r| r.run_id == run_id)
-            })
+            .or_else(|| self.completed_runs.iter_mut().find(|r| r.run_id == run_id))
     }
 
     /// Queue a message for the current run.

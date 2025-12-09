@@ -11,13 +11,13 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
 use taskrun_core::{
-    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo,
-    WorkerStatus,
+    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId,
+    WorkerInfo, WorkerStatus,
 };
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage, RunStatusUpdate,
-    WorkerHeartbeat, WorkerHello,
+    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage,
+    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
@@ -109,9 +109,7 @@ impl RunService for RunServiceImpl {
                 state_clone.workers.write().await.remove(&id);
 
                 // Notify UI
-                state_clone.notify_ui(UiNotification::WorkerDisconnected {
-                    worker_id: id,
-                });
+                state_clone.notify_ui(UiNotification::WorkerDisconnected { worker_id: id });
             }
         });
 
@@ -168,7 +166,11 @@ async fn handle_worker_hello(
             tx,
         };
 
-        state.workers.write().await.insert(worker_id.clone(), connected);
+        state
+            .workers
+            .write()
+            .await
+            .insert(worker_id.clone(), connected);
 
         // Notify UI
         state.notify_ui(UiNotification::WorkerConnected {

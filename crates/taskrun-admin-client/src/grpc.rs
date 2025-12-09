@@ -80,13 +80,11 @@ impl AdminClient {
                     .map_err(|e| ClientError::Connection(e.to_string()))?
             }
             // No TLS
-            _ => {
-                Channel::from_shared(endpoint.to_string())
-                    .map_err(|e| ClientError::Connection(e.to_string()))?
-                    .connect()
-                    .await
-                    .map_err(|e| ClientError::Connection(e.to_string()))?
-            }
+            _ => Channel::from_shared(endpoint.to_string())
+                .map_err(|e| ClientError::Connection(e.to_string()))?
+                .connect()
+                .await
+                .map_err(|e| ClientError::Connection(e.to_string()))?,
         };
 
         Ok(Self {

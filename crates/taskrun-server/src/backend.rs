@@ -203,7 +203,10 @@ async fn handle_commands(
                 log_to_ui(&ui_tx, LogLevel::Info, "Shutdown requested".to_string()).await;
                 break;
             }
-            ServerCommand::CreateTask { agent_name, input_json } => {
+            ServerCommand::CreateTask {
+                agent_name,
+                input_json,
+            } => {
                 handle_create_task(&state, &ui_tx, agent_name, input_json).await;
             }
             ServerCommand::CancelTask { task_id } => {
@@ -231,7 +234,9 @@ async fn load_tls(
                 "Failed to read TLS certificate from '{}': {}. Run scripts/gen-dev-certs.sh first.",
                 config.tls_cert_path, e
             );
-            let _ = ui_tx.send(ServerUiEvent::ServerError { message: msg }).await;
+            let _ = ui_tx
+                .send(ServerUiEvent::ServerError { message: msg })
+                .await;
             return None;
         }
     };
@@ -243,7 +248,9 @@ async fn load_tls(
                 "Failed to read TLS key from '{}': {}. Run scripts/gen-dev-certs.sh first.",
                 config.tls_key_path, e
             );
-            let _ = ui_tx.send(ServerUiEvent::ServerError { message: msg }).await;
+            let _ = ui_tx
+                .send(ServerUiEvent::ServerError { message: msg })
+                .await;
             return None;
         }
     };
@@ -258,7 +265,9 @@ async fn load_tls(
                 "Failed to read CA certificate from '{}': {}. Run scripts/gen-dev-certs.sh first.",
                 config.ca_cert_path, e
             );
-            let _ = ui_tx.send(ServerUiEvent::ServerError { message: msg }).await;
+            let _ = ui_tx
+                .send(ServerUiEvent::ServerError { message: msg })
+                .await;
             return None;
         }
     };
@@ -479,7 +488,12 @@ async fn handle_cancel_task(
             return;
         }
 
-        log_to_ui(ui_tx, LogLevel::Info, format!("Cancelling task {}", task_id)).await;
+        log_to_ui(
+            ui_tx,
+            LogLevel::Info,
+            format!("Cancelling task {}", task_id),
+        )
+        .await;
 
         // Collect active runs
         runs_to_cancel = task
@@ -570,25 +584,18 @@ async fn handle_send_chat_message(
     // Find the worker handling this run
     let worker_id = {
         let tasks = state.tasks.read().await;
-        tasks
-            .values()
-            .find_map(|t| {
-                t.runs
-                    .iter()
-                    .find(|r| r.run_id == run_id)
-                    .map(|r| r.worker_id.clone())
-            })
+        tasks.values().find_map(|t| {
+            t.runs
+                .iter()
+                .find(|r| r.run_id == run_id)
+                .map(|r| r.worker_id.clone())
+        })
     };
 
     let worker_id = match worker_id {
         Some(id) => id,
         None => {
-            log_to_ui(
-                ui_tx,
-                LogLevel::Error,
-                format!("Run not found: {}", run_id),
-            )
-            .await;
+            log_to_ui(ui_tx, LogLevel::Error, format!("Run not found: {}", run_id)).await;
             return;
         }
     };

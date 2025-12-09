@@ -1,9 +1,9 @@
 //! Workers view.
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use ratatui::Frame;
 
 use taskrun_core::WorkerStatus;
 
@@ -69,12 +69,12 @@ pub fn render_workers_view(f: &mut Frame, state: &ServerUiState, area: Rect) {
         .collect();
 
     let widths = [
-        Constraint::Length(10),  // Worker ID
-        Constraint::Length(20),  // Hostname
-        Constraint::Min(15),     // Agents
-        Constraint::Length(12),  // Status
-        Constraint::Length(8),   // Runs
-        Constraint::Length(15),  // Last Heartbeat
+        Constraint::Length(10), // Worker ID
+        Constraint::Length(20), // Hostname
+        Constraint::Min(15),    // Agents
+        Constraint::Length(12), // Status
+        Constraint::Length(8),  // Runs
+        Constraint::Length(15), // Last Heartbeat
     ];
 
     let table = Table::new(rows, widths)

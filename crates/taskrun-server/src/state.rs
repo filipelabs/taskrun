@@ -126,8 +126,8 @@ pub struct ServerUiState {
     pub run_output: HashMap<RunId, String>,
     pub run_chat: HashMap<RunId, Vec<ChatEntry>>, // Chat messages per run
     pub run_scroll: usize,
-    pub chat_input: String,        // Current chat input text
-    pub chat_input_cursor: usize,  // Cursor position in chat input
+    pub chat_input: String,       // Current chat input text
+    pub chat_input_cursor: usize, // Cursor position in chat input
 
     // Logs view
     pub log_messages: VecDeque<LogEntry>,

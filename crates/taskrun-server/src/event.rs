@@ -13,9 +13,7 @@ pub enum ServerUiEvent {
     },
 
     /// Server failed to start.
-    ServerError {
-        message: String,
-    },
+    ServerError { message: String },
 
     /// Worker connected.
     WorkerConnected {
@@ -25,9 +23,7 @@ pub enum ServerUiEvent {
     },
 
     /// Worker disconnected.
-    WorkerDisconnected {
-        worker_id: WorkerId,
-    },
+    WorkerDisconnected { worker_id: WorkerId },
 
     /// Worker heartbeat received.
     WorkerHeartbeat {
@@ -38,16 +34,10 @@ pub enum ServerUiEvent {
     },
 
     /// Task created.
-    TaskCreated {
-        task_id: TaskId,
-        agent: String,
-    },
+    TaskCreated { task_id: TaskId, agent: String },
 
     /// Task status changed.
-    TaskStatusChanged {
-        task_id: TaskId,
-        status: TaskStatus,
-    },
+    TaskStatusChanged { task_id: TaskId, status: TaskStatus },
 
     /// Run status changed.
     RunStatusChanged {
@@ -57,10 +47,7 @@ pub enum ServerUiEvent {
     },
 
     /// Run output chunk.
-    RunOutputChunk {
-        run_id: RunId,
-        content: String,
-    },
+    RunOutputChunk { run_id: RunId, content: String },
 
     /// Chat message (user or assistant message in conversation).
     ChatMessage {
@@ -71,10 +58,7 @@ pub enum ServerUiEvent {
     },
 
     /// Log message.
-    LogMessage {
-        level: LogLevel,
-        message: String,
-    },
+    LogMessage { level: LogLevel, message: String },
 }
 
 /// Commands sent from UI to backend.
@@ -86,20 +70,13 @@ pub enum ServerCommand {
     },
 
     /// Cancel a task.
-    CancelTask {
-        task_id: TaskId,
-    },
+    CancelTask { task_id: TaskId },
 
     /// Disconnect a worker.
-    DisconnectWorker {
-        worker_id: WorkerId,
-    },
+    DisconnectWorker { worker_id: WorkerId },
 
     /// Send a chat message to a run (forwarded to worker).
-    SendChatMessage {
-        run_id: RunId,
-        message: String,
-    },
+    SendChatMessage { run_id: RunId, message: String },
 
     /// Shutdown the server.
     Shutdown,

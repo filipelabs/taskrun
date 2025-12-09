@@ -153,7 +153,11 @@ pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Worker Setup ")
-        .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .title_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
     frame.render_widget(block, popup_area);
 
     // Inner area
@@ -255,22 +259,24 @@ fn render_option_row(
     is_focused: bool,
 ) {
     let label_style = if is_focused {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Gray)
     };
 
     let value_style = if is_focused {
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::White)
     };
 
     let arrow_style = Style::default().fg(Color::Cyan);
 
-    let mut spans = vec![
-        Span::styled(format!("{:>16}: ", label), label_style),
-    ];
+    let mut spans = vec![Span::styled(format!("{:>16}: ", label), label_style)];
 
     // Left arrow
     if selected > 0 && is_focused {
@@ -292,21 +298,22 @@ fn render_option_row(
 }
 
 /// Render a toggle row with checkbox.
-fn render_toggle_row(
-    frame: &mut Frame,
-    area: Rect,
-    label: &str,
-    value: bool,
-    is_focused: bool,
-) {
+fn render_toggle_row(frame: &mut Frame, area: Rect, label: &str, value: bool, is_focused: bool) {
     let label_style = if is_focused {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Gray)
     };
 
     let checkbox = if value {
-        Span::styled("[✓]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "[✓]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
         Span::styled("[ ]", Style::default().fg(Color::DarkGray))
     };

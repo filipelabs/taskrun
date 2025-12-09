@@ -14,20 +14,25 @@ use std::thread;
 
 use clap::Parser;
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
-use ratatui::Terminal;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use app::ServerApp;
-use backend::{ServerConfig, run_server_backend};
+use backend::{run_server_backend, ServerConfig};
 use event::{ServerCommand, ServerUiEvent};
 
 /// TaskRun control plane server with TUI.
 #[derive(Parser, Debug)]
-#[command(name = "taskrun-server", about = "TaskRun control plane server with TUI")]
+#[command(
+    name = "taskrun-server",
+    about = "TaskRun control plane server with TUI"
+)]
 struct Args {
     /// gRPC server address
     #[arg(long, default_value = "[::1]:50051")]
@@ -64,7 +69,9 @@ fn main() -> io::Result<()> {
 
     // Initialize logging (to file, not stderr since we have TUI)
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("taskrun=info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("taskrun=info".parse().unwrap()),
+        )
         .with_writer(|| {
             std::fs::OpenOptions::new()
                 .create(true)

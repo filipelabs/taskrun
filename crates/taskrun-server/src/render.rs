@@ -1,14 +1,18 @@
 //! Main render function that dispatches to view renderers.
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
+use ratatui::Frame;
 
 use crate::state::{ServerStatus, ServerUiState, ServerView};
-use crate::views::{render_logs_view, render_run_detail_view, render_tasks_view, render_workers_view};
-use crate::views::dialogs::{render_cancel_confirm, render_disconnect_confirm, render_new_task_dialog, render_quit_confirm};
+use crate::views::dialogs::{
+    render_cancel_confirm, render_disconnect_confirm, render_new_task_dialog, render_quit_confirm,
+};
+use crate::views::{
+    render_logs_view, render_run_detail_view, render_tasks_view, render_workers_view,
+};
 
 /// Main render function.
 pub fn render(f: &mut Frame, state: &ServerUiState) {
@@ -67,7 +71,9 @@ fn render_header(f: &mut Frame, state: &ServerUiState, area: Rect) {
         .enumerate()
         .map(|(i, v)| {
             let style = if *v == state.current_view {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -85,7 +91,10 @@ fn render_header(f: &mut Frame, state: &ServerUiState, area: Rect) {
             Block::default()
                 .title(vec![
                     Span::raw(" TaskRun Server "),
-                    Span::styled(format!("[{}]", status_text), Style::default().fg(status_color)),
+                    Span::styled(
+                        format!("[{}]", status_text),
+                        Style::default().fg(status_color),
+                    ),
                     Span::raw(" "),
                 ])
                 .borders(Borders::ALL),
@@ -106,13 +115,25 @@ fn render_header(f: &mut Frame, state: &ServerUiState, area: Rect) {
 
     let stats = Paragraph::new(Line::from(vec![
         Span::raw(" Workers: "),
-        Span::styled(format!("{}", state.workers.len()), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{}", state.workers.len()),
+            Style::default().fg(Color::Cyan),
+        ),
         Span::raw(" | Tasks: "),
-        Span::styled(format!("{}", state.total_tasks), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{}", state.total_tasks),
+            Style::default().fg(Color::Cyan),
+        ),
         Span::raw(" | "),
-        Span::styled(format!("{}", state.completed_tasks), Style::default().fg(Color::Green)),
+        Span::styled(
+            format!("{}", state.completed_tasks),
+            Style::default().fg(Color::Green),
+        ),
         Span::raw("/"),
-        Span::styled(format!("{}", state.failed_tasks), Style::default().fg(Color::Red)),
+        Span::styled(
+            format!("{}", state.failed_tasks),
+            Style::default().fg(Color::Red),
+        ),
         Span::raw(" | Up: "),
         Span::styled(uptime_str, Style::default().fg(Color::Cyan)),
         Span::raw(" "),
@@ -133,22 +154,15 @@ fn render_main_content(f: &mut Frame, state: &ServerUiState, area: Rect) {
 
 fn render_footer(f: &mut Frame, state: &ServerUiState, area: Rect) {
     let help_text = match state.current_view {
-        ServerView::Workers => {
-            "j/k: Navigate | d: Disconnect | Tab: Next view | q: Quit"
-        }
+        ServerView::Workers => "j/k: Navigate | d: Disconnect | Tab: Next view | q: Quit",
         ServerView::Tasks => {
             "j/k: Navigate | n: New task | c: Cancel | Enter: Details | Tab: Next view | q: Quit"
         }
-        ServerView::Logs => {
-            "j/k: Scroll | g/G: Top/Bottom | Tab: Next view | q: Quit"
-        }
-        ServerView::RunDetail => {
-            "j/k: Scroll | g/G: Top/Bottom | Esc: Back | q: Quit"
-        }
+        ServerView::Logs => "j/k: Scroll | g/G: Top/Bottom | Tab: Next view | q: Quit",
+        ServerView::RunDetail => "j/k: Scroll | g/G: Top/Bottom | Esc: Back | q: Quit",
     };
 
-    let footer = Paragraph::new(help_text)
-        .style(Style::default().fg(Color::DarkGray));
+    let footer = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
 
     f.render_widget(footer, area);
 }

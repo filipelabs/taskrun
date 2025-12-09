@@ -6,7 +6,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs};
 use ratatui::Frame;
 
-use super::state::{ChatRole, ConnectionState, DetailPane, LogLevel, RunStatus, WorkerUiState, WorkerView};
+use super::state::{
+    ChatRole, ConnectionState, DetailPane, LogLevel, RunStatus, WorkerUiState, WorkerView,
+};
 
 /// Main render function for the worker TUI.
 pub fn render(frame: &mut Frame, state: &WorkerUiState) {
@@ -84,7 +86,9 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
 
     // Worker info
     let connection_status = match &state.connection_state {
-        ConnectionState::Connecting => Span::styled("Connecting...", Style::default().fg(Color::Yellow)),
+        ConnectionState::Connecting => {
+            Span::styled("Connecting...", Style::default().fg(Color::Yellow))
+        }
         ConnectionState::Connected => Span::styled("Connected", Style::default().fg(Color::Green)),
         ConnectionState::Disconnected { retry_in } => Span::styled(
             format!("Disconnected (retry in {}s)", retry_in.as_secs()),
@@ -129,7 +133,11 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
         Line::from(vec![
             Span::raw("Active Runs: "),
             Span::styled(
-                format!("{}/{}", state.active_runs.len(), state.config.max_concurrent_runs),
+                format!(
+                    "{}/{}",
+                    state.active_runs.len(),
+                    state.config.max_concurrent_runs
+                ),
                 Style::default().fg(if state.active_runs.is_empty() {
                     Color::Gray
                 } else {
@@ -139,8 +147,11 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
         ]),
     ];
 
-    let info = Paragraph::new(info_lines)
-        .block(Block::default().borders(Borders::ALL).title(" Worker Info "));
+    let info = Paragraph::new(info_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Worker Info "),
+    );
     frame.render_widget(info, chunks[0]);
 
     // Stats
@@ -177,7 +188,8 @@ fn render_status_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
                 if state.stats.total_runs > 0 {
                     format!(
                         "{:.1}%",
-                        (state.stats.successful_runs as f64 / state.stats.total_runs as f64) * 100.0
+                        (state.stats.successful_runs as f64 / state.stats.total_runs as f64)
+                            * 100.0
                     )
                 } else {
                     "N/A".to_string()
@@ -271,11 +283,11 @@ fn render_runs_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
         ],
     )
     .header(header)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" Runs ({} active, {} completed) ", state.active_runs.len(), state.completed_runs.len())),
-    );
+    .block(Block::default().borders(Borders::ALL).title(format!(
+        " Runs ({} active, {} completed) ",
+        state.active_runs.len(),
+        state.completed_runs.len()
+    )));
 
     frame.render_widget(table, area);
 }
@@ -464,7 +476,12 @@ fn render_chat_messages(
     // If there's streaming output, show it
     if !run.current_output.is_empty() {
         all_lines.push(Line::from(vec![
-            Span::styled("AI: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "AI: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("(streaming...)", Style::default().fg(Color::DarkGray)),
         ]));
         for wrapped_line in wrap_text(&run.current_output, text_width, "  ") {
@@ -517,20 +534,14 @@ fn render_chat_input(
 
     // Show queued message or input prompt
     let (title, content) = if let Some(ref queued) = run.queued_input {
-        (
-            " Queued (will send when run completes) ",
-            queued.clone(),
-        )
+        (" Queued (will send when run completes) ", queued.clone())
     } else if run.status == RunStatus::Running {
         (
             " Type message (queued until run completes) ",
             state.chat_input.clone(),
         )
     } else {
-        (
-            " Type message (Enter to send) ",
-            state.chat_input.clone(),
-        )
+        (" Type message (Enter to send) ", state.chat_input.clone())
     };
 
     // Add cursor (unicode-safe: convert char index to byte index)
@@ -597,7 +608,10 @@ fn render_events_pane(
             };
 
             let mut spans = vec![
-                Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} ", timestamp),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(&event.event_type, event_style),
             ];
 
@@ -659,20 +673,21 @@ fn render_logs_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
             let timestamp = entry.timestamp.format("%H:%M:%S");
 
             ListItem::new(Line::from(vec![
-                Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} ", timestamp),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(format!("[{:<5}] ", level_str), level_style),
                 Span::raw(&entry.message),
             ]))
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default().borders(Borders::ALL).title(format!(
-            " Logs ({}/{}) ",
-            state.log_scroll_offset + 1,
-            state.log_messages.len()
-        )),
-    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+        " Logs ({}/{}) ",
+        state.log_scroll_offset + 1,
+        state.log_messages.len()
+    )));
 
     frame.render_widget(list, area);
 }
@@ -747,8 +762,11 @@ fn render_config_view(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
         ]));
     }
 
-    let config = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(" Configuration "));
+    let config = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Configuration "),
+    );
 
     frame.render_widget(config, area);
 }
@@ -762,7 +780,9 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &WorkerUiState) {
 
     let help = match state.current_view {
         WorkerView::Status => "[1-4] Views  [Tab] Next  [q] Quit",
-        WorkerView::Runs => "[n] New  [Enter] Join  [j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit",
+        WorkerView::Runs => {
+            "[n] New  [Enter] Join  [j/k] Navigate  [1-4] Views  [Tab] Next  [q] Quit"
+        }
         WorkerView::RunDetail => "[Esc] Back  [Tab] Switch pane  [j/k] Scroll  [g/G] Top/Bottom",
         WorkerView::Logs => "[j/k] Scroll  [1-4] Views  [Tab] Next  [q] Quit",
         WorkerView::Config => "[1-4] Views  [Tab] Next  [q] Quit",

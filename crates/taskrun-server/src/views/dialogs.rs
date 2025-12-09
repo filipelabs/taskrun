@@ -1,10 +1,10 @@
 //! Dialog overlays.
 
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::state::ServerUiState;
 
@@ -19,9 +19,17 @@ pub fn render_quit_confirm(f: &mut Frame) {
         Line::from("Are you sure you want to quit?"),
         Line::from(""),
         Line::from(vec![
-            Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Y]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("es  "),
-            Span::styled("[N]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("o"),
         ]),
     ];
@@ -69,7 +77,9 @@ pub fn render_new_task_dialog(f: &mut Frame, state: &ServerUiState) {
 
     // Agent label
     let agent_style = if state.new_task_field == 0 {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
@@ -77,12 +87,18 @@ pub fn render_new_task_dialog(f: &mut Frame, state: &ServerUiState) {
     f.render_widget(agent_label, chunks[2]);
 
     // Agent input
-    let agent_value = render_input_field(&state.new_task_agent, state.new_task_field == 0, state.new_task_cursor);
+    let agent_value = render_input_field(
+        &state.new_task_agent,
+        state.new_task_field == 0,
+        state.new_task_cursor,
+    );
     f.render_widget(agent_value, chunks[3]);
 
     // Input label
     let input_style = if state.new_task_field == 1 {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
@@ -90,7 +106,11 @@ pub fn render_new_task_dialog(f: &mut Frame, state: &ServerUiState) {
     f.render_widget(input_label, chunks[5]);
 
     // Input field
-    let input_value = render_input_field(&state.new_task_input, state.new_task_field == 1, state.new_task_cursor);
+    let input_value = render_input_field(
+        &state.new_task_input,
+        state.new_task_field == 1,
+        state.new_task_cursor,
+    );
     f.render_widget(input_value, chunks[6]);
 
     // Help
@@ -147,9 +167,17 @@ pub fn render_cancel_confirm(f: &mut Frame, state: &ServerUiState) {
         Line::from("This will stop any running executions."),
         Line::from(""),
         Line::from(vec![
-            Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Y]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("es  "),
-            Span::styled("[N]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("o"),
         ]),
     ];
@@ -184,9 +212,17 @@ pub fn render_disconnect_confirm(f: &mut Frame, state: &ServerUiState) {
         Line::from("Active runs will be reassigned."),
         Line::from(""),
         Line::from(vec![
-            Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Y]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("es  "),
-            Span::styled("[N]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("o"),
         ]),
     ];
