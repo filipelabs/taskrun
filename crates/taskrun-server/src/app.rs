@@ -86,10 +86,11 @@ impl ServerApp {
                 self.state.workers.remove(&worker_id);
                 self.state.add_log(LogLevel::Info, format!("Worker disconnected: {}", worker_id));
             }
-            ServerUiEvent::WorkerHeartbeat { worker_id, status, active_runs } => {
+            ServerUiEvent::WorkerHeartbeat { worker_id, status, active_runs, max_concurrent_runs } => {
                 if let Some(worker) = self.state.workers.get_mut(&worker_id) {
                     worker.status = status;
                     worker.active_runs = active_runs;
+                    worker.max_concurrent_runs = max_concurrent_runs;
                     worker.last_heartbeat = chrono::Utc::now();
                 }
             }

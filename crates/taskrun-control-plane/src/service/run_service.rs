@@ -210,6 +210,7 @@ async fn handle_heartbeat(state: &Arc<AppState>, hb: WorkerHeartbeat) {
             worker_id,
             status,
             active_runs: hb.active_runs,
+            max_concurrent_runs: hb.max_concurrent_runs,
         });
     } else {
         warn!(worker_id = %hb.worker_id, "Heartbeat from unknown worker");

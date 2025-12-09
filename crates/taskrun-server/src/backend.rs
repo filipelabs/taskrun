@@ -324,10 +324,12 @@ async fn forward_notifications(
                         worker_id,
                         status,
                         active_runs,
+                        max_concurrent_runs,
                     } => ServerUiEvent::WorkerHeartbeat {
                         worker_id,
                         status,
                         active_runs,
+                        max_concurrent_runs,
                     },
                     UiNotification::TaskCreated { task_id, agent } => {
                         ServerUiEvent::TaskCreated { task_id, agent }

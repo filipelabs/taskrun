@@ -33,6 +33,7 @@ pub enum ServerUiEvent {
         worker_id: WorkerId,
         status: WorkerStatus,
         active_runs: u32,
+        max_concurrent_runs: u32,
     },
 
     /// Task created.
