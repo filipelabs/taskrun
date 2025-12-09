@@ -7,9 +7,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-/// Predefined agent options.
-pub const AGENT_OPTIONS: &[&str] = &["general", "support_triage"];
-
 /// Predefined model options.
 pub const MODEL_OPTIONS: &[&str] = &["sonnet", "opus", "haiku"];
 
@@ -46,7 +43,8 @@ impl SetupField {
 #[derive(Debug)]
 pub struct SetupState {
     pub current_field: SetupField,
-    pub agent_index: usize,
+    pub agent_name: String,
+    pub agent_cursor: usize,
     pub model_index: usize,
     pub skip_permissions: bool,
 }
@@ -55,7 +53,8 @@ impl Default for SetupState {
     fn default() -> Self {
         Self {
             current_field: SetupField::Agent,
-            agent_index: 0,
+            agent_name: "general".to_string(),
+            agent_cursor: 7, // At end of "general"
             model_index: 0,
             skip_permissions: true, // Default to true for convenience
         }
@@ -65,7 +64,7 @@ impl Default for SetupState {
 impl SetupState {
     /// Get the selected agent name.
     pub fn selected_agent(&self) -> &str {
-        AGENT_OPTIONS[self.agent_index]
+        &self.agent_name
     }
 
     /// Get the selected model name.
@@ -84,8 +83,9 @@ impl SetupState {
             }
             KeyCode::Left => match self.current_field {
                 SetupField::Agent => {
-                    if self.agent_index > 0 {
-                        self.agent_index -= 1;
+                    // Move cursor left in text field
+                    if self.agent_cursor > 0 {
+                        self.agent_cursor -= 1;
                     }
                 }
                 SetupField::Model => {
@@ -100,8 +100,9 @@ impl SetupState {
             },
             KeyCode::Right => match self.current_field {
                 SetupField::Agent => {
-                    if self.agent_index < AGENT_OPTIONS.len() - 1 {
-                        self.agent_index += 1;
+                    // Move cursor right in text field
+                    if self.agent_cursor < self.agent_name.len() {
+                        self.agent_cursor += 1;
                     }
                 }
                 SetupField::Model => {
@@ -114,9 +115,36 @@ impl SetupState {
                 }
                 SetupField::Start => {}
             },
-            KeyCode::Char(' ') => {
-                if self.current_field == SetupField::SkipPermissions {
+            KeyCode::Char(c) => {
+                if self.current_field == SetupField::Agent {
+                    // Insert character at cursor position
+                    self.agent_name.insert(self.agent_cursor, c);
+                    self.agent_cursor += 1;
+                } else if self.current_field == SetupField::SkipPermissions && c == ' ' {
                     self.skip_permissions = !self.skip_permissions;
+                }
+            }
+            KeyCode::Backspace => {
+                if self.current_field == SetupField::Agent && self.agent_cursor > 0 {
+                    self.agent_cursor -= 1;
+                    self.agent_name.remove(self.agent_cursor);
+                }
+            }
+            KeyCode::Delete => {
+                if self.current_field == SetupField::Agent
+                    && self.agent_cursor < self.agent_name.len()
+                {
+                    self.agent_name.remove(self.agent_cursor);
+                }
+            }
+            KeyCode::Home => {
+                if self.current_field == SetupField::Agent {
+                    self.agent_cursor = 0;
+                }
+            }
+            KeyCode::End => {
+                if self.current_field == SetupField::Agent {
+                    self.agent_cursor = self.agent_name.len();
                 }
             }
             KeyCode::Enter => {
@@ -181,13 +209,13 @@ pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
         ])
         .split(inner);
 
-    // Agent row
-    render_option_row(
+    // Agent row (text input)
+    render_text_input_row(
         frame,
         chunks[0],
         "Agent",
-        AGENT_OPTIONS,
-        state.agent_index,
+        &state.agent_name,
+        state.agent_cursor,
         state.current_field == SetupField::Agent,
     );
 
@@ -247,6 +275,49 @@ pub fn render_setup(frame: &mut Frame, state: &mut SetupState) {
     if chunks.len() > 6 && chunks[6].height > 0 {
         frame.render_widget(help, chunks[6]);
     }
+}
+
+/// Render a text input row.
+fn render_text_input_row(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: &str,
+    cursor: usize,
+    is_focused: bool,
+) {
+    let label_style = if is_focused {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
+
+    let value_style = if is_focused {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
+    // Build display text with cursor
+    let display_text = if is_focused {
+        let chars: Vec<char> = value.chars().collect();
+        let cursor_pos = cursor.min(chars.len());
+        let before: String = chars[..cursor_pos].iter().collect();
+        let after: String = chars[cursor_pos..].iter().collect();
+        format!("{}│{}", before, after)
+    } else {
+        value.to_string()
+    };
+
+    let line = Paragraph::new(Line::from(vec![
+        Span::styled(format!("{:>16}: ", label), label_style),
+        Span::styled(display_text, value_style),
+    ]));
+    frame.render_widget(line, area);
 }
 
 /// Render a single-line option row with left/right selection.

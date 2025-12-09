@@ -23,6 +23,7 @@ use taskrun_proto::RunServiceClient;
 
 use crate::config::Config;
 use crate::executor::ClaudeCodeExecutor;
+use crate::json_output;
 
 /// Session info stored for each run.
 #[derive(Debug, Clone)]
@@ -107,6 +108,12 @@ impl WorkerConnection {
         let mut inbound = response.into_inner();
 
         info!("Connected to control plane, sending WorkerHello");
+
+        // Emit JSON event for worker connected
+        json_output::emit_worker_connected(
+            self.config.worker_id.as_str(),
+            &self.config.control_plane_addr,
+        );
 
         // Send WorkerHello
         self.send_hello().await?;
@@ -198,6 +205,13 @@ impl WorkerConnection {
                         "Received run assignment"
                     );
 
+                    // Emit JSON event for task assignment
+                    json_output::emit_task_assigned(
+                        &assignment.run_id,
+                        &assignment.task_id,
+                        &assignment.agent_name,
+                    );
+
                     // Spawn real execution via Claude Code
                     if let Some(tx) = &self.outbound_tx {
                         let tx = tx.clone();
@@ -217,6 +231,10 @@ impl WorkerConnection {
                         reason = %cancel.reason,
                         "Received cancel request"
                     );
+
+                    // Emit JSON event for task cancellation
+                    json_output::emit_task_cancelled(&cancel.run_id, &cancel.reason);
+
                     // TODO: Cancel the run (would need to track JoinHandles)
                 }
                 ServerPayload::Ack(ack) => {
@@ -227,6 +245,12 @@ impl WorkerConnection {
                         run_id = %continue_run.run_id,
                         message_len = continue_run.message.len(),
                         "Received continue request"
+                    );
+
+                    // Emit JSON event for continue request
+                    json_output::emit_continue_received(
+                        &continue_run.run_id,
+                        continue_run.message.len(),
                     );
 
                     // Look up session for this run
@@ -272,6 +296,9 @@ async fn execute_real_run(
     // Send RUNNING status
     send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
 
+    // Emit JSON event for task running
+    json_output::emit_task_running(&run_id);
+
     // Create channel for streaming output from executor
     let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
 
@@ -309,6 +336,8 @@ async fn execute_real_run(
     let mut seq = 0u64;
     while let Some(chunk) = chunk_rx.recv().await {
         if !chunk.is_final && !chunk.content.is_empty() {
+            // Emit JSON event for output chunk
+            json_output::emit_output_chunk(&run_id, seq, &chunk.content, false);
             send_output_chunk(&tx, &run_id, seq, chunk.content, false).await;
             seq += 1;
         }
@@ -338,13 +367,14 @@ async fn execute_real_run(
                 );
             }
 
-            // Send final chunk
+            // Send final chunk and emit JSON event
+            json_output::emit_output_chunk(&run_id, seq, "", true);
             send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
 
             // Build the backend info that was used
             let backend_used = taskrun_proto::pb::ModelBackend {
-                provider: exec_result.provider,
-                model_name: exec_result.model_used,
+                provider: exec_result.provider.clone(),
+                model_name: exec_result.model_used.clone(),
                 context_window: 200_000,
                 supports_streaming: true,
                 modalities: vec!["text".to_string()],
@@ -361,6 +391,13 @@ async fn execute_real_run(
             )
             .await;
 
+            // Emit JSON event for task completed
+            json_output::emit_task_completed(
+                &run_id,
+                Some(&exec_result.model_used),
+                Some(&exec_result.provider),
+            );
+
             info!(run_id = %run_id, "Real execution completed successfully");
         }
         Ok(Err(e)) => {
@@ -373,17 +410,24 @@ async fn execute_real_run(
                 e.to_string(),
             )
             .await;
+
+            // Emit JSON event for task failed
+            json_output::emit_task_failed(&run_id, &e.to_string());
         }
         Err(e) => {
             // Task panicked or was cancelled
             error!(run_id = %run_id, error = %e, "Executor task failed");
+            let error_msg = format!("Executor task failed: {}", e);
             send_status_update_with_error(
                 &tx,
                 &run_id,
                 taskrun_proto::pb::RunStatus::Failed,
-                format!("Executor task failed: {}", e),
+                error_msg.clone(),
             )
             .await;
+
+            // Emit JSON event for task failed
+            json_output::emit_task_failed(&run_id, &error_msg);
         }
     }
 
@@ -431,6 +475,9 @@ async fn execute_continue_run(
     // Send RUNNING status
     send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
 
+    // Emit JSON event for task running
+    json_output::emit_task_running(&run_id);
+
     // Create channel for streaming output from executor
     let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
 
@@ -473,6 +520,8 @@ async fn execute_continue_run(
     while let Some(chunk) = chunk_rx.recv().await {
         if !chunk.is_final && !chunk.content.is_empty() {
             full_response.push_str(&chunk.content);
+            // Emit JSON event for output chunk
+            json_output::emit_output_chunk(&run_id, seq, &chunk.content, false);
             send_output_chunk(&tx, &run_id, seq, chunk.content, false).await;
             seq += 1;
         }
@@ -508,13 +557,14 @@ async fn execute_continue_run(
                 .await;
             }
 
-            // Send final chunk
+            // Send final chunk and emit JSON event
+            json_output::emit_output_chunk(&run_id, seq, "", true);
             send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
 
             // Build the backend info that was used
             let backend_used = taskrun_proto::pb::ModelBackend {
-                provider: exec_result.provider,
-                model_name: exec_result.model_used,
+                provider: exec_result.provider.clone(),
+                model_name: exec_result.model_used.clone(),
                 context_window: 200_000,
                 supports_streaming: true,
                 modalities: vec!["text".to_string()],
@@ -531,6 +581,13 @@ async fn execute_continue_run(
             )
             .await;
 
+            // Emit JSON event for task completed
+            json_output::emit_task_completed(
+                &run_id,
+                Some(&exec_result.model_used),
+                Some(&exec_result.provider),
+            );
+
             info!(run_id = %run_id, "Continue execution completed successfully");
         }
         Ok(Err(e)) => {
@@ -542,16 +599,23 @@ async fn execute_continue_run(
                 e.to_string(),
             )
             .await;
+
+            // Emit JSON event for task failed
+            json_output::emit_task_failed(&run_id, &e.to_string());
         }
         Err(e) => {
             error!(run_id = %run_id, error = %e, "Continue executor task failed");
+            let error_msg = format!("Executor task failed: {}", e);
             send_status_update_with_error(
                 &tx,
                 &run_id,
                 taskrun_proto::pb::RunStatus::Failed,
-                format!("Executor task failed: {}", e),
+                error_msg.clone(),
             )
             .await;
+
+            // Emit JSON event for task failed
+            json_output::emit_task_failed(&run_id, &error_msg);
         }
     }
 
@@ -708,6 +772,11 @@ async fn run_heartbeat_loop(
         } else {
             taskrun_proto::pb::WorkerStatus::Idle
         };
+
+        let status_str = if runs > 0 { "busy" } else { "idle" };
+
+        // Emit JSON event for heartbeat
+        json_output::emit_heartbeat(config.worker_id.as_str(), status_str, runs);
 
         let heartbeat = WorkerHeartbeat {
             worker_id: config.worker_id.as_str().to_string(),

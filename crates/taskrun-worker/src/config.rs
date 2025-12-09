@@ -13,6 +13,10 @@ pub struct Cli {
     #[arg(long)]
     pub headless: bool,
 
+    /// Output events as JSON lines to stdout (implies --headless, logs go to stderr)
+    #[arg(long)]
+    pub json: bool,
+
     /// Agent name to run (e.g., general, support_triage)
     #[arg(short, long, default_value = "general")]
     pub agent: String,

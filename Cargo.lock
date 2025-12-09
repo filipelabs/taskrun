@@ -5342,6 +5342,7 @@ dependencies = [
  "crossterm",
  "ctrlc",
  "ratatui",
+ "serde",
  "serde_json",
  "taskrun-claude-sdk",
  "taskrun-core",

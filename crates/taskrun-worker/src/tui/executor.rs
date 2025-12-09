@@ -31,9 +31,6 @@ pub enum ExecutorError {
     #[error("Claude process exited with error: {0}")]
     ProcessError(String),
 
-    #[error("Unknown agent: {0}")]
-    UnknownAgent(String),
-
     #[error("SDK error: {0}")]
     SdkError(String),
 }
@@ -316,7 +313,7 @@ impl ClaudeCodeExecutor {
         }
 
         // Build the prompt based on agent type
-        let prompt = self.build_prompt(agent_name, input_json)?;
+        let prompt = self.build_prompt(agent_name, input_json);
         info!(prompt_len = prompt.len(), "Built prompt for agent");
 
         info!(agent = %agent_name, "Creating Claude Code SDK executor");
@@ -463,16 +460,8 @@ impl ClaudeCodeExecutor {
     }
 
     /// Build the prompt for a given agent and input.
-    fn build_prompt(&self, agent_name: &str, input_json: &str) -> Result<String, ExecutorError> {
-        match agent_name {
-            "general" => Ok(self.build_general_prompt(input_json)),
-            "support_triage" => Ok(self.build_support_triage_prompt(input_json)),
-            _ => Err(ExecutorError::UnknownAgent(agent_name.to_string())),
-        }
-    }
-
-    /// Build the general agent prompt - just passes the task directly.
-    fn build_general_prompt(&self, input_json: &str) -> String {
+    /// Any agent name is accepted - the input is passed directly to Claude.
+    fn build_prompt(&self, _agent_name: &str, input_json: &str) -> String {
         // Try to parse as JSON to extract "task" field, otherwise use as-is
         if let Ok(parsed) = serde_json::from_str::<Value>(input_json) {
             if let Some(task) = parsed.get("task").and_then(|t| t.as_str()) {
@@ -481,28 +470,6 @@ impl ClaudeCodeExecutor {
         }
         // If not JSON or no "task" field, use input directly
         input_json.to_string()
-    }
-
-    /// Build the support triage agent prompt.
-    fn build_support_triage_prompt(&self, input_json: &str) -> String {
-        format!(
-            r#"You are a support ticket triage assistant. Analyze the following support ticket and provide a classification.
-
-## Support Ticket
-{}
-
-## Instructions
-Analyze the ticket and provide:
-1. **Priority**: critical | high | medium | low
-2. **Category**: billing | technical | account | feature_request | other
-3. **Summary**: One sentence summary of the issue
-4. **Suggested Action**: Brief recommended next step
-
-## Response Format
-Respond with a JSON object only, no additional text:
-{{"priority": "...", "category": "...", "summary": "...", "suggested_action": "..."}}"#,
-            input_json
-        )
     }
 }
 

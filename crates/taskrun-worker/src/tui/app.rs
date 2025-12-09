@@ -35,19 +35,18 @@ fn run_app_with_setup(
     mut config: WorkerConfig,
     mut terminal: DefaultTerminal,
 ) -> Result<(), Box<dyn Error>> {
-    // Setup phase
-    let mut setup_state = SetupState::default();
-
-    // Pre-select based on config defaults
-    setup_state.agent_index = super::setup::AGENT_OPTIONS
-        .iter()
-        .position(|name| *name == config.agent_name)
-        .unwrap_or(0);
-    setup_state.model_index = super::setup::MODEL_OPTIONS
+    // Setup phase - pre-fill based on config defaults
+    let model_index = super::setup::MODEL_OPTIONS
         .iter()
         .position(|name| *name == config.model_name || config.model_name.contains(name))
         .unwrap_or(0);
-    setup_state.skip_permissions = config.skip_permissions;
+    let mut setup_state = SetupState {
+        agent_name: config.agent_name.clone(),
+        agent_cursor: config.agent_name.len(),
+        model_index,
+        skip_permissions: config.skip_permissions,
+        ..Default::default()
+    };
 
     // Run setup loop
     loop {
@@ -153,10 +152,8 @@ impl WorkerApp {
             // Poll terminal events (non-blocking with short timeout)
             if event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        if self.handle_key(key.code) {
-                            break; // quit requested
-                        }
+                    if key.kind == KeyEventKind::Press && self.handle_key(key.code) {
+                        break; // quit requested
                     }
                 }
             }

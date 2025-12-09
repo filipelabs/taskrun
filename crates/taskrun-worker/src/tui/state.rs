@@ -181,8 +181,7 @@ pub struct RunInfo {
 impl RunInfo {
     /// Create a new RunInfo with the initial user message.
     pub fn new(run_id: String, task_id: String, agent: String, input: String) -> Self {
-        let mut messages = Vec::new();
-        messages.push(ChatMessage::user(input));
+        let messages = vec![ChatMessage::user(input)];
         Self {
             run_id,
             task_id,
@@ -241,6 +240,7 @@ impl RunInfo {
     }
 
     /// Get the initial input (first user message).
+    #[allow(dead_code)]
     pub fn initial_input(&self) -> &str {
         self.messages
             .first()
