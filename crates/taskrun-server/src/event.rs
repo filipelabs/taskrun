@@ -52,6 +52,7 @@ pub enum ServerUiEvent {
     /// Chat message (user or assistant message in conversation).
     ChatMessage {
         run_id: RunId,
+        #[allow(dead_code)] // For future use
         task_id: TaskId,
         role: ChatRole,
         content: String,
@@ -83,6 +84,7 @@ pub enum ServerCommand {
 }
 
 /// A message to send to a specific worker.
+#[allow(dead_code)] // For future use
 pub struct WorkerMessage {
     pub worker_id: WorkerId,
     pub message: RunServerMessage,
@@ -90,6 +92,7 @@ pub struct WorkerMessage {
 
 /// Log level for UI messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Debug variant for API completeness
 pub enum LogLevel {
     Debug,
     Info,

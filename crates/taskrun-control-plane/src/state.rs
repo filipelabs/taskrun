@@ -20,6 +20,7 @@ use crate::crypto::{BootstrapToken, CertificateAuthority};
 
 /// Notifications sent to the TUI for real-time updates.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields are used by TUI consumers
 pub enum UiNotification {
     /// A worker connected to the control plane.
     WorkerConnected {
@@ -187,6 +188,7 @@ impl AppState {
 
     /// Create a new AppState with UI notification channel.
     /// Returns the AppState and a receiver for notifications.
+    #[allow(dead_code)] // Used by taskrun-server TUI
     pub fn with_ui_channel(
         ca: Option<CertificateAuthority>,
     ) -> (Arc<Self>, broadcast::Receiver<UiNotification>) {

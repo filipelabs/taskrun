@@ -209,6 +209,13 @@ impl WorkerConnection {
                 ServerPayload::Ack(ack) => {
                     info!(ack_type = %ack.ack_type, ref_id = %ack.ref_id, "Received ack");
                 }
+                ServerPayload::ContinueRun(continue_run) => {
+                    info!(
+                        run_id = %continue_run.run_id,
+                        "Received continue request (not supported in headless worker)"
+                    );
+                    // ContinueRun is only supported in the TUI worker which tracks sessions
+                }
             }
         }
     }

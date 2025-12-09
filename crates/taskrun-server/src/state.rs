@@ -53,6 +53,7 @@ impl ServerView {
 
 /// Cached worker info for display.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields for future display use
 pub struct WorkerDisplayInfo {
     pub worker_id: WorkerId,
     pub hostname: String,
@@ -86,6 +87,7 @@ pub struct LogEntry {
 
 /// Chat message entry for display.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // timestamp for future display use
 pub struct ChatEntry {
     pub timestamp: DateTime<Utc>,
     pub role: ChatRole,
