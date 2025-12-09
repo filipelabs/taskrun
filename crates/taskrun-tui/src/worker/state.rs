@@ -335,7 +335,7 @@ impl WorkerUiState {
             status_message: None,
             viewing_run_id: None,
             detail_pane: DetailPane::default(),
-            chat_scroll: 0,
+            chat_scroll: usize::MAX, // usize::MAX means auto-scroll to bottom
             events_scroll: 0,
             chat_input: String::new(),
             chat_input_cursor: 0,

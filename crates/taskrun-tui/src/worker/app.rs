@@ -614,23 +614,35 @@ impl WorkerApp {
                     self.state.chat_input_cursor = self.state.chat_input.chars().count();
                 }
 
-                // Up arrow scrolls chat
+                // Up arrow scrolls chat (disable auto-scroll when scrolling up)
                 KeyCode::Up => {
-                    if self.state.chat_scroll > 0 {
+                    if self.state.chat_scroll == usize::MAX {
+                        // Switch from auto-scroll to manual - we'll let render calculate actual position
+                        // For now, just set to a large value that will be clamped
+                        self.state.chat_scroll = usize::MAX - 1;
+                    } else if self.state.chat_scroll > 0 {
                         self.state.chat_scroll -= 1;
                     }
                 }
                 // Down arrow scrolls chat
                 KeyCode::Down => {
-                    self.state.chat_scroll += 1;
+                    if self.state.chat_scroll != usize::MAX {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_add(1);
+                    }
                 }
 
                 // Page up/down for chat scroll
                 KeyCode::PageUp => {
-                    self.state.chat_scroll = self.state.chat_scroll.saturating_sub(10);
+                    if self.state.chat_scroll == usize::MAX {
+                        self.state.chat_scroll = usize::MAX - 1;
+                    } else {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_sub(10);
+                    }
                 }
                 KeyCode::PageDown => {
-                    self.state.chat_scroll += 10;
+                    if self.state.chat_scroll != usize::MAX {
+                        self.state.chat_scroll = self.state.chat_scroll.saturating_add(10);
+                    }
                 }
 
                 _ => {}
@@ -668,7 +680,10 @@ impl WorkerApp {
             KeyCode::Up | KeyCode::Char('k') => {
                 match self.state.detail_pane {
                     DetailPane::Output => {
-                        if self.state.chat_scroll > 0 {
+                        if self.state.chat_scroll == usize::MAX {
+                            // Switch from auto-scroll to manual
+                            self.state.chat_scroll = usize::MAX - 1;
+                        } else if self.state.chat_scroll > 0 {
                             self.state.chat_scroll -= 1;
                         }
                     }
@@ -684,7 +699,9 @@ impl WorkerApp {
             KeyCode::Down | KeyCode::Char('j') => {
                 match self.state.detail_pane {
                     DetailPane::Output => {
-                        self.state.chat_scroll += 1;
+                        if self.state.chat_scroll != usize::MAX {
+                            self.state.chat_scroll = self.state.chat_scroll.saturating_add(1);
+                        }
                     }
                     DetailPane::Events => {
                         self.state.events_scroll += 1;
@@ -696,7 +713,11 @@ impl WorkerApp {
             KeyCode::PageUp => {
                 match self.state.detail_pane {
                     DetailPane::Output => {
-                        self.state.chat_scroll = self.state.chat_scroll.saturating_sub(20);
+                        if self.state.chat_scroll == usize::MAX {
+                            self.state.chat_scroll = usize::MAX - 1;
+                        } else {
+                            self.state.chat_scroll = self.state.chat_scroll.saturating_sub(20);
+                        }
                     }
                     DetailPane::Events => {
                         self.state.events_scroll = self.state.events_scroll.saturating_sub(20);
@@ -708,7 +729,9 @@ impl WorkerApp {
             KeyCode::PageDown => {
                 match self.state.detail_pane {
                     DetailPane::Output => {
-                        self.state.chat_scroll += 20;
+                        if self.state.chat_scroll != usize::MAX {
+                            self.state.chat_scroll = self.state.chat_scroll.saturating_add(20);
+                        }
                     }
                     DetailPane::Events => {
                         self.state.events_scroll += 20;
@@ -728,14 +751,14 @@ impl WorkerApp {
                 }
             }
 
-            // End - scroll to bottom
+            // End - scroll to bottom (auto-scroll mode for chat)
             KeyCode::End | KeyCode::Char('G') => {
                 match self.state.detail_pane {
                     DetailPane::Output => {
-                        self.state.chat_scroll = usize::MAX / 2;
+                        self.state.chat_scroll = usize::MAX; // Re-enable auto-scroll
                     }
                     DetailPane::Events => {
-                        self.state.events_scroll = usize::MAX / 2;
+                        self.state.events_scroll = usize::MAX / 2; // Events doesn't use auto-scroll
                     }
                 }
             }

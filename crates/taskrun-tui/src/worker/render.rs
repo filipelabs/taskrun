@@ -474,9 +474,9 @@ fn render_chat_messages(
 
     let total_lines = all_lines.len();
 
-    // Auto-scroll to bottom, or use manual scroll
+    // Auto-scroll to bottom (usize::MAX), or use manual scroll position
     let max_scroll = total_lines.saturating_sub(visible_height);
-    let scroll_offset = if state.chat_scroll == 0 {
+    let scroll_offset = if state.chat_scroll == usize::MAX {
         max_scroll // Auto-scroll to bottom
     } else {
         state.chat_scroll.min(max_scroll)
@@ -488,7 +488,9 @@ fn render_chat_messages(
         .take(visible_height)
         .collect();
 
-    let title = format!(" Chat [{}/{}] ", scroll_offset + visible_height.min(total_lines), total_lines);
+    let first_line = scroll_offset + 1;
+    let last_line = (scroll_offset + visible_height).min(total_lines);
+    let title = format!(" Chat [{}-{}/{}] ", first_line, last_line, total_lines);
 
     let chat = Paragraph::new(lines).block(
         Block::default()
