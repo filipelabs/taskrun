@@ -10,6 +10,7 @@ Open source control plane for orchestrating AI agents on remote workers.
 - **OpenAI-compatible API**: Drop-in replacement with `/v1/responses` endpoint
 - **Real-time streaming**: SSE and gRPC bidirectional streaming for live output
 - **Secure communication**: TLS + mTLS between control plane and workers
+- **MCP integration**: Model Context Protocol server for AI assistant tool use
 - **CLI, TUI & DevTools**: Command-line interface, terminal dashboard, and Tauri desktop app
 - **Observability**: Prometheus metrics, structured logging, workers dashboard
 
@@ -140,6 +141,7 @@ data: {"type":"response.completed","response":{...}}
 | `/v1/enroll` | POST | Worker certificate enrollment |
 | `/v1/tasks/:id/events` | GET | Run events for a task (JSON) |
 | `/v1/tasks/:id/output` | GET | Task output stream (SSE) |
+| `/mcp` | POST | MCP server (Streamable HTTP transport) |
 
 ## TUI (Terminal User Interface)
 
@@ -196,6 +198,35 @@ cargo run -p taskrun-cli -- list-tasks
 # Cancel a task
 cargo run -p taskrun-cli -- cancel-task <task-id>
 ```
+
+## MCP Server
+
+TaskRun exposes an MCP (Model Context Protocol) server that allows AI assistants like Claude to interact with the control plane.
+
+**Available Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `list_workers` | List connected workers and their capabilities |
+| `start_new_task` | Create and start a new task on an available worker |
+| `get_task` | Get task details including status, output, and chat history |
+| `continue_task` | Continue an existing task with a follow-up message |
+
+**Claude Code Configuration:**
+
+Add to your MCP settings:
+```json
+{
+  "mcpServers": {
+    "taskrun": {
+      "type": "streamable-http",
+      "url": "http://[::1]:50052/mcp"
+    }
+  }
+}
+```
+
+The MCP server supports session continuation, allowing multi-turn conversations with tasks.
 
 ## DevTools
 
@@ -397,6 +428,7 @@ RUST_LOG=info          # Logging level (trace, debug, info, warn, error)
 - [x] Workers UI dashboard
 - [x] Run events tracking
 - [x] Claude Code SDK integration
+- [x] MCP server for AI assistant integration
 
 **Roadmap:**
 - [ ] Persistent storage (Postgres/SQLite)
