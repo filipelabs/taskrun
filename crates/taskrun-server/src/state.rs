@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
+use taskrun_core::{ChatRole, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
 use taskrun_tui_components::{LogEntry, LogLevel};
 
 /// Server views.
@@ -85,6 +85,14 @@ pub struct ChatEntry {
     pub content: String,
 }
 
+/// Run event entry for display.
+#[derive(Debug, Clone)]
+pub struct EventEntry {
+    pub timestamp: DateTime<Utc>,
+    pub event_type: RunEventType,
+    pub details: Option<String>,
+}
+
 /// Server status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
@@ -117,8 +125,10 @@ pub struct ServerUiState {
     // Run detail view
     pub viewing_task_id: Option<TaskId>,
     pub run_output: HashMap<RunId, String>,
-    pub run_chat: HashMap<RunId, Vec<ChatEntry>>, // Chat messages per run
+    pub run_chat: HashMap<RunId, Vec<ChatEntry>>,     // Chat messages per run
+    pub run_events: HashMap<RunId, Vec<EventEntry>>,  // Events per run
     pub run_scroll: usize,
+    pub events_scroll: usize,
     pub chat_input: String,       // Current chat input text
     pub chat_input_cursor: usize, // Cursor position in chat input
 
@@ -164,7 +174,9 @@ impl ServerUiState {
             viewing_task_id: None,
             run_output: HashMap::new(),
             run_chat: HashMap::new(),
+            run_events: HashMap::new(),
             run_scroll: 0,
+            events_scroll: 0,
             chat_input: String::new(),
             chat_input_cursor: 0,
 

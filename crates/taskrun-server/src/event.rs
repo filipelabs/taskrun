@@ -1,6 +1,7 @@
 //! Server TUI events and commands.
 
-use taskrun_core::{ChatRole, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
+use chrono::{DateTime, Utc};
+use taskrun_core::{ChatRole, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerStatus};
 use taskrun_proto::pb::RunServerMessage;
 
 // Re-export LogLevel from shared components
@@ -51,6 +52,14 @@ pub enum ServerUiEvent {
 
     /// Run output chunk.
     RunOutputChunk { run_id: RunId, content: String },
+
+    /// Run execution event (tool calls, etc.).
+    RunEvent {
+        run_id: RunId,
+        event_type: RunEventType,
+        timestamp: DateTime<Utc>,
+        details: Option<String>,
+    },
 
     /// Chat message (user or assistant message in conversation).
     ChatMessage {

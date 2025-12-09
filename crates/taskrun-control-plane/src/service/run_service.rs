@@ -457,11 +457,17 @@ async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
         "Run event received"
     );
 
+    // Convert timestamp
+    let timestamp = chrono::DateTime::from_timestamp_millis(proto_event.timestamp_ms)
+        .unwrap_or_else(chrono::Utc::now);
+
     // Notify UI
     state.notify_ui(UiNotification::RunEvent {
         run_id: event.run_id.clone(),
         task_id: event.task_id.clone(),
         event_type,
+        timestamp,
+        metadata: proto_event.metadata.clone(),
     });
 
     // Store the event

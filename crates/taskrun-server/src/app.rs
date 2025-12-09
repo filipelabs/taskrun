@@ -171,6 +171,23 @@ impl ServerApp {
                         content,
                     });
             }
+            ServerUiEvent::RunEvent {
+                run_id,
+                event_type,
+                timestamp,
+                details,
+            } => {
+                use crate::state::EventEntry;
+                self.state
+                    .run_events
+                    .entry(run_id)
+                    .or_default()
+                    .push(EventEntry {
+                        timestamp,
+                        event_type,
+                        details,
+                    });
+            }
             ServerUiEvent::LogMessage { level, message } => {
                 self.state.add_log(level, message);
             }

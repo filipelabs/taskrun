@@ -5,7 +5,7 @@ use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use taskrun_core::{ChatRole, RunStatus, TaskStatus};
+use taskrun_core::{ChatRole, RunEventType, RunStatus, TaskStatus};
 use taskrun_tui_components::{
     DetailPane, MessageRole, RunDetailInfo, RunDetailStatus, RunDetailView, RunEvent, RunMessage,
 };
@@ -45,7 +45,7 @@ pub fn render_run_detail_view(f: &mut Frame, state: &ServerUiState, area: Rect) 
     RunDetailView::new(&run_detail_info)
         .focused_pane(focused_pane)
         .chat_scroll(state.run_scroll)
-        .events_scroll(0) // Server doesn't track events scroll separately
+        .events_scroll(state.events_scroll)
         .input(&state.chat_input, state.chat_input_cursor)
         .render(f, area);
 }
@@ -75,8 +75,20 @@ fn convert_to_run_detail(
         })
         .unwrap_or_default();
 
-    // Server doesn't track run events, so we provide empty events
-    let events: Vec<RunEvent> = Vec::new();
+    // Convert events
+    let events: Vec<RunEvent> = state
+        .run_events
+        .get(run_id)
+        .map(|evts| {
+            evts.iter()
+                .map(|evt| RunEvent {
+                    event_type: event_type_to_string(&evt.event_type),
+                    timestamp: evt.timestamp,
+                    details: evt.details.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     // Convert status from task/run status
     let status = match task.latest_run_status {
@@ -112,5 +124,18 @@ fn convert_to_run_detail(
         events,
         current_output,
         queued_input: None, // Server doesn't queue inputs
+    }
+}
+
+/// Convert RunEventType to a display string.
+fn event_type_to_string(event_type: &RunEventType) -> String {
+    match event_type {
+        RunEventType::ExecutionStarted => "Execution Started".to_string(),
+        RunEventType::SessionInitialized => "Session Initialized".to_string(),
+        RunEventType::ToolRequested => "Tool Requested".to_string(),
+        RunEventType::ToolCompleted => "Tool Completed".to_string(),
+        RunEventType::OutputGenerated => "Output Generated".to_string(),
+        RunEventType::ExecutionCompleted => "Execution Completed".to_string(),
+        RunEventType::ExecutionFailed => "Execution Failed".to_string(),
     }
 }

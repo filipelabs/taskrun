@@ -378,9 +378,21 @@ async fn forward_notifications(
                     UiNotification::RunOutputChunk {
                         run_id, content, ..
                     } => ServerUiEvent::RunOutputChunk { run_id, content },
-                    UiNotification::RunEvent { .. } => {
-                        // Skip run events for now - we can add them later if needed
-                        continue;
+                    UiNotification::RunEvent {
+                        run_id,
+                        event_type,
+                        timestamp,
+                        metadata,
+                        ..
+                    } => {
+                        // Extract details from metadata (e.g., tool name)
+                        let details = metadata.get("tool_name").cloned();
+                        ServerUiEvent::RunEvent {
+                            run_id,
+                            event_type,
+                            timestamp,
+                            details,
+                        }
                     }
                     UiNotification::ChatMessage {
                         run_id,

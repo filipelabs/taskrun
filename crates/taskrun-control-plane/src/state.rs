@@ -59,6 +59,8 @@ pub enum UiNotification {
         run_id: RunId,
         task_id: TaskId,
         event_type: RunEventType,
+        timestamp: DateTime<Utc>,
+        metadata: HashMap<String, String>,
     },
     /// Chat message received (user or assistant message in conversation).
     ChatMessage {
