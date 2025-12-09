@@ -10,6 +10,10 @@ description = "TaskRun worker daemon"
 name = "taskrun-worker"
 path = "src/main.rs"
 
+[features]
+default = []
+tui = ["ratatui", "crossterm", "taskrun-ui", "uuid", "ctrlc"]
+
 [dependencies]
 taskrun-core = { path = "../taskrun-core" }
 taskrun-proto = { path = "../taskrun-proto" }
@@ -34,3 +38,10 @@ chrono.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true
+
+# TUI (optional)
+ratatui = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }
+taskrun-ui = { path = "../taskrun-ui", optional = true }
+uuid = { workspace = true, optional = true }
+ctrlc = { version = "3.4", optional = true }

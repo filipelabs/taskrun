@@ -11,14 +11,34 @@ mod config;
 mod connection;
 mod executor;
 
+#[cfg(feature = "tui")]
+mod tui;
+
 use config::{Cli, Config};
 use connection::WorkerConnection;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
+    // Check if TUI mode is requested
+    #[cfg(feature = "tui")]
+    if cli.tui {
+        return run_tui_mode(cli);
+    }
+
+    #[cfg(not(feature = "tui"))]
+    if cli.tui {
+        eprintln!("TUI mode requires the 'tui' feature. Rebuild with: cargo build -p taskrun-worker --features tui");
+        std::process::exit(1);
+    }
+
+    // Run headless mode
+    run_headless_mode(cli)
+}
+
+/// Run the worker in headless mode (daemon).
+fn run_headless_mode(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing with log level from CLI
     let filter = EnvFilter::try_new(&cli.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
@@ -39,23 +59,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Starting TaskRun worker"
     );
 
-    // Reconnection loop
-    loop {
-        let mut connection = WorkerConnection::new(config.clone());
+    // Create tokio runtime and run
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        // Reconnection loop
+        loop {
+            let mut connection = WorkerConnection::new(config.clone());
 
-        match connection.connect_and_run().await {
-            Ok(_) => {
-                info!("Connection closed normally");
+            match connection.connect_and_run().await {
+                Ok(_) => {
+                    info!("Connection closed normally");
+                }
+                Err(e) => {
+                    error!(error = %e, "Connection error");
+                }
             }
-            Err(e) => {
-                error!(error = %e, "Connection error");
-            }
+
+            info!(
+                delay_secs = config.reconnect_delay_secs,
+                "Reconnecting in {} seconds...", config.reconnect_delay_secs
+            );
+            tokio::time::sleep(Duration::from_secs(config.reconnect_delay_secs)).await;
         }
+    })
+}
 
-        info!(
-            delay_secs = config.reconnect_delay_secs,
-            "Reconnecting in {} seconds...", config.reconnect_delay_secs
-        );
-        tokio::time::sleep(Duration::from_secs(config.reconnect_delay_secs)).await;
-    }
+/// Run the worker in TUI mode (interactive terminal UI).
+#[cfg(feature = "tui")]
+fn run_tui_mode(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    // Resolve working directory to absolute path
+    let working_dir = std::fs::canonicalize(&cli.working_dir)
+        .unwrap_or_else(|_| std::path::PathBuf::from(&cli.working_dir))
+        .to_string_lossy()
+        .to_string();
+
+    let config = tui::WorkerConfig {
+        agent_name: cli.agent,
+        model_name: cli.model,
+        endpoint: cli.endpoint,
+        ca_cert_path: cli.ca_cert,
+        client_cert_path: cli.client_cert,
+        client_key_path: cli.client_key,
+        allowed_tools: cli.allow_tools.map(|s| parse_tools(&s)),
+        denied_tools: cli.deny_tools.map(|s| parse_tools(&s)),
+        max_concurrent_runs: cli.max_concurrent_runs,
+        working_dir,
+        skip_permissions: true,
+    };
+
+    tui::run_worker_tui(config)
+}
+
+/// Parse comma-separated tool names into a vector.
+#[cfg(feature = "tui")]
+fn parse_tools(tools: &str) -> Vec<String> {
+    tools
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }

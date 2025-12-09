@@ -9,6 +9,10 @@ use taskrun_core::WorkerId;
 #[command(about = "TaskRun Worker - connects to control plane and executes agent tasks")]
 #[command(version)]
 pub struct Cli {
+    /// Run with interactive terminal UI (requires 'tui' feature)
+    #[arg(long)]
+    pub tui: bool,
+
     /// Agent name to run (e.g., general, support_triage)
     #[arg(short, long, default_value = "general")]
     pub agent: String,
@@ -52,6 +56,10 @@ pub struct Cli {
     /// Maximum concurrent runs
     #[arg(long, default_value = "10")]
     pub max_concurrent_runs: u32,
+
+    /// Working directory for agent execution (TUI mode)
+    #[arg(short = 'd', long, default_value = ".")]
+    pub working_dir: String,
 }
 
 /// Worker configuration.

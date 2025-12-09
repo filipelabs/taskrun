@@ -145,34 +145,44 @@ data: {"type":"response.completed","response":{...}}
 
 ## TUI (Terminal User Interface)
 
-Interactive terminal dashboard for monitoring and operating TaskRun.
+Interactive terminal interfaces for monitoring and operating TaskRun.
+
+### Server TUI
+
+Run the control plane server with an integrated dashboard:
 
 ```bash
-# Control plane monitoring (workers, tasks, logs)
-cargo run -p taskrun-tui
-
-# Worker mode (interactive worker with setup screen)
-cargo run -p taskrun-tui -- worker
+cargo run -p taskrun-server
 ```
 
-### Control Plane TUI
-
-Monitor connected workers, view tasks, and see real-time logs. Navigate with:
-- `Tab` or `1-4` - Switch views (Workers, Tasks, Logs, Config)
-- `j/k` or arrows - Navigate lists
-- `q` - Quit
+Features:
+- Workers view - connected workers and their status
+- Tasks view - task list with status and details
+- Logs view - real-time server logs
+- Run detail view - chat interface for interacting with tasks
 
 ### Worker TUI
 
-Run an interactive worker with a setup screen for selecting agent and model:
-- Setup screen prompts for agent (general, support_triage) and model selection
+Run a worker with interactive terminal UI (requires `tui` feature):
+
+```bash
+# Build with TUI support
+cargo build -p taskrun-worker --features tui
+
+# Run with TUI
+cargo run -p taskrun-worker --features tui -- --tui
+```
+
+Features:
+- Setup screen for agent and model selection
 - Real-time connection status and run monitoring
+- Chat interface for runs
 - Live log streaming
 - Auto-reconnection with exponential backoff
 
 ```bash
 # With custom options
-cargo run -p taskrun-tui -- worker \
+cargo run -p taskrun-worker --features tui -- --tui \
   --agent general \
   --model claude-sonnet-4-5 \
   --endpoint https://[::1]:50051
@@ -337,9 +347,10 @@ taskrun/
 └── crates/
     ├── taskrun-core/           # Domain types (Task, Run, Worker)
     ├── taskrun-proto/          # Generated gRPC code + converters
-    ├── taskrun-control-plane/  # Control plane server
-    ├── taskrun-worker/         # Worker daemon (headless)
-    ├── taskrun-tui/            # Terminal UI (control plane + worker modes)
+    ├── taskrun-control-plane/  # Control plane library (state, services)
+    ├── taskrun-server/         # Server TUI binary
+    ├── taskrun-worker/         # Worker binary (headless or --tui)
+    ├── taskrun-ui/             # Shared TUI components
     ├── taskrun-cli/            # Command line interface
     └── taskrun-claude-sdk/     # Claude Code SDK for agent execution
 ```

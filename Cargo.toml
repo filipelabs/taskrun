@@ -8,7 +8,6 @@ members = [
     "crates/taskrun-cli",
     "crates/taskrun-claude-sdk",
     "crates/taskrun-admin-client",
-    "crates/taskrun-tui",
     "crates/taskrun-server",
     "crates/taskrun-ui",
     "devtools",

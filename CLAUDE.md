@@ -57,8 +57,7 @@ taskrun-v2/
     taskrun-proto/        # Generated gRPC code (tonic/prost) + converters
     taskrun-control-plane/# Control plane library (state, services, HTTP handlers)
     taskrun-server/       # Server TUI binary (uses control-plane + ui)
-    taskrun-worker/       # Headless worker binary
-    taskrun-tui/          # Worker TUI binary (interactive worker)
+    taskrun-worker/       # Worker binary (headless or --tui for interactive)
     taskrun-ui/           # Shared TUI components (widgets, theme, utils)
     taskrun-cli/          # Admin CLI
     taskrun-claude-sdk/   # Claude Code SDK for agent execution
