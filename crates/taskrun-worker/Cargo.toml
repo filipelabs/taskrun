@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = ["tui"]
-tui = ["ratatui", "crossterm", "taskrun-ui", "uuid", "ctrlc"]
+tui = ["ratatui", "crossterm", "taskrun-tui-components", "uuid", "ctrlc"]
 
 [dependencies]
 taskrun-core = { path = "../taskrun-core" }
@@ -42,6 +42,6 @@ async-trait.workspace = true
 # TUI (optional)
 ratatui = { workspace = true, optional = true }
 crossterm = { workspace = true, optional = true }
-taskrun-ui = { path = "../taskrun-ui", optional = true }
+taskrun-tui-components = { path = "../taskrun-tui-components", optional = true }
 uuid = { workspace = true, optional = true }
 ctrlc = { version = "3.4", optional = true }

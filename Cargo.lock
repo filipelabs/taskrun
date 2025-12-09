@@ -5322,7 +5322,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "taskrun-ui"
+name = "taskrun-tui-components"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -5345,7 +5345,7 @@ dependencies = [
  "taskrun-claude-sdk",
  "taskrun-core",
  "taskrun-proto",
- "taskrun-ui",
+ "taskrun-tui-components",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",

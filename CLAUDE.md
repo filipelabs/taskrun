@@ -58,7 +58,7 @@ taskrun-v2/
     taskrun-control-plane/# Control plane library (state, services, HTTP handlers)
     taskrun-server/       # Server TUI binary (uses control-plane + ui)
     taskrun-worker/       # Worker binary (headless or --tui for interactive)
-    taskrun-ui/           # Shared TUI components (widgets, theme, utils)
+    taskrun-tui-components/           # Shared TUI components (widgets, theme, utils)
     taskrun-cli/          # Admin CLI
     taskrun-claude-sdk/   # Claude Code SDK for agent execution
 ```
@@ -234,13 +234,13 @@ Always use the official terms:
 
 When introducing new concepts, integrate them into existing vocabulary rather than inventing new terms.
 
-### TUI Development (taskrun-ui)
+### TUI Development (taskrun-tui-components)
 
-The `taskrun-ui` crate provides shared TUI components used by both `taskrun-server` and `taskrun-tui`.
+The `taskrun-tui-components` crate provides shared TUI components used by both `taskrun-server` and `taskrun-tui`.
 
 **Architecture:**
 ```
-taskrun-ui/
+taskrun-tui-components/
   src/
     lib.rs          # Public exports
     theme.rs        # Colors, styles (Theme struct)
@@ -251,9 +251,9 @@ taskrun-ui/
       events.rs     # EventsWidget - execution events
 ```
 
-**Rules for taskrun-ui:**
+**Rules for taskrun-tui-components:**
 
-1. **No domain dependencies**: `taskrun-ui` must NOT depend on `taskrun-core`, `taskrun-proto`, or any other TaskRun crate. It only depends on `ratatui`, `crossterm`, `chrono`, and `unicode-width`.
+1. **No domain dependencies**: `taskrun-tui-components` must NOT depend on `taskrun-core`, `taskrun-proto`, or any other TaskRun crate. It only depends on `ratatui`, `crossterm`, `chrono`, and `unicode-width`.
 
 2. **Data-agnostic widgets**: Widgets receive data through their own simple structs (e.g., `ChatMessage`, `EventInfo`), not domain types. Consumers convert domain types to widget types.
 
@@ -268,12 +268,12 @@ taskrun-ui/
 
 4. **Theme consistency**: All widgets accept a `Theme` for styling. Use `Theme::default()` for standard TaskRun colors.
 
-5. **When to add to taskrun-ui**:
+5. **When to add to taskrun-tui-components**:
    - Widget is used by 2+ TUI applications
    - Widget is generic (not tied to specific domain logic)
    - Widget handles common patterns (chat, logs, events, tables)
 
-6. **When NOT to add to taskrun-ui**:
+6. **When NOT to add to taskrun-tui-components**:
    - Application-specific layouts or views
    - Widgets that need domain types directly
    - One-off UI components

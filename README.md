@@ -349,7 +349,7 @@ taskrun/
     ├── taskrun-control-plane/  # Control plane library (state, services)
     ├── taskrun-server/         # Server TUI binary
     ├── taskrun-worker/         # Worker binary (headless or --tui)
-    ├── taskrun-ui/             # Shared TUI components
+    ├── taskrun-tui-components/             # Shared TUI components
     ├── taskrun-cli/            # Command line interface
     └── taskrun-claude-sdk/     # Claude Code SDK for agent execution
 ```
