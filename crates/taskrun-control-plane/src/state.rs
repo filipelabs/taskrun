@@ -6,10 +6,71 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use tokio::sync::{broadcast, mpsc, RwLock};
 
-use taskrun_core::{RunEvent, RunId, RunStatus, Task, TaskId, WorkerId, WorkerInfo, WorkerStatus};
+use taskrun_core::{
+    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, Task, TaskId, TaskStatus,
+    WorkerId, WorkerInfo, WorkerStatus,
+};
 use taskrun_proto::pb::RunServerMessage;
 
 use crate::crypto::{BootstrapToken, CertificateAuthority};
+
+// ============================================================================
+// UI Notification Types
+// ============================================================================
+
+/// Notifications sent to the TUI for real-time updates.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields are used by TUI consumers
+pub enum UiNotification {
+    /// A worker connected to the control plane.
+    WorkerConnected {
+        worker_id: WorkerId,
+        hostname: String,
+        agents: Vec<String>,
+    },
+    /// A worker disconnected from the control plane.
+    WorkerDisconnected { worker_id: WorkerId },
+    /// A worker sent a heartbeat.
+    WorkerHeartbeat {
+        worker_id: WorkerId,
+        status: WorkerStatus,
+        active_runs: u32,
+        max_concurrent_runs: u32,
+    },
+    /// A new task was created.
+    TaskCreated { task_id: TaskId, agent: String },
+    /// Task status changed.
+    TaskStatusChanged { task_id: TaskId, status: TaskStatus },
+    /// Run status changed.
+    RunStatusChanged {
+        run_id: RunId,
+        task_id: TaskId,
+        worker_id: Option<WorkerId>,
+        status: RunStatus,
+    },
+    /// Run output chunk received.
+    RunOutputChunk {
+        run_id: RunId,
+        task_id: TaskId,
+        content: String,
+    },
+    /// Run event occurred.
+    RunEvent {
+        run_id: RunId,
+        task_id: TaskId,
+        event_type: RunEventType,
+    },
+    /// Chat message received (user or assistant message in conversation).
+    ChatMessage {
+        run_id: RunId,
+        task_id: TaskId,
+        role: ChatRole,
+        content: String,
+    },
+}
+
+/// Type alias for UI notification sender.
+pub type UiNotificationSender = broadcast::Sender<UiNotification>;
 
 // ============================================================================
 // Streaming Types
@@ -77,6 +138,9 @@ pub struct AppState {
     /// Run output indexed by RunId (accumulated content from output chunks).
     pub outputs: RwLock<HashMap<RunId, String>>,
 
+    /// Chat messages indexed by RunId (conversation history).
+    pub chat_messages: RwLock<HashMap<RunId, Vec<ChatMessage>>>,
+
     /// Broadcast channels for streaming run output, indexed by RunId.
     /// Created when a streaming client subscribes.
     pub stream_channels: RwLock<HashMap<RunId, StreamSender>>,
@@ -86,6 +150,9 @@ pub struct AppState {
 
     /// Certificate authority for signing worker CSRs.
     pub ca: Option<CertificateAuthority>,
+
+    /// Optional channel for sending notifications to the TUI.
+    pub ui_tx: Option<UiNotificationSender>,
 }
 
 impl AppState {
@@ -96,9 +163,11 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
+            ui_tx: None,
         })
     }
 
@@ -109,10 +178,41 @@ impl AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: Some(ca),
+            ui_tx: None,
         })
+    }
+
+    /// Create a new AppState with UI notification channel.
+    /// Returns the AppState and a receiver for notifications.
+    #[allow(dead_code)] // Used by taskrun-server TUI
+    pub fn with_ui_channel(
+        ca: Option<CertificateAuthority>,
+    ) -> (Arc<Self>, broadcast::Receiver<UiNotification>) {
+        let (tx, rx) = broadcast::channel(256);
+        let state = Arc::new(Self {
+            workers: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::new()),
+            events: RwLock::new(HashMap::new()),
+            outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
+            stream_channels: RwLock::new(HashMap::new()),
+            bootstrap_tokens: RwLock::new(HashMap::new()),
+            ca,
+            ui_tx: Some(tx),
+        });
+        (state, rx)
+    }
+
+    /// Send a notification to the UI if a channel is configured.
+    pub fn notify_ui(&self, notification: UiNotification) {
+        if let Some(ref tx) = self.ui_tx {
+            // Ignore send errors (no subscribers = ok to drop)
+            let _ = tx.send(notification);
+        }
     }
 
     /// Get the number of connected workers.
@@ -186,6 +286,42 @@ impl AppState {
     }
 
     // ========================================================================
+    // Chat Message Methods
+    // ========================================================================
+
+    /// Store a chat message for a run.
+    pub async fn store_chat_message(&self, run_id: &RunId, message: ChatMessage) {
+        let mut messages = self.chat_messages.write().await;
+        messages.entry(run_id.clone()).or_default().push(message);
+    }
+
+    /// Get all chat messages for a run.
+    #[allow(dead_code)]
+    pub async fn get_chat_messages(&self, run_id: &RunId) -> Vec<ChatMessage> {
+        let messages = self.chat_messages.read().await;
+        messages.get(run_id).cloned().unwrap_or_default()
+    }
+
+    /// Get chat messages for a task (across all runs, combined).
+    #[allow(dead_code)]
+    pub async fn get_chat_messages_by_task(&self, task_id: &TaskId) -> Vec<ChatMessage> {
+        let tasks = self.tasks.read().await;
+        if let Some(task) = tasks.get(task_id) {
+            let messages = self.chat_messages.read().await;
+            let mut result = Vec::new();
+            for run in &task.runs {
+                if let Some(run_messages) = messages.get(&run.run_id) {
+                    result.extend(run_messages.iter().cloned());
+                }
+            }
+            // Sort by timestamp
+            result.sort_by_key(|m| m.timestamp_ms);
+            return result;
+        }
+        Vec::new()
+    }
+
+    // ========================================================================
     // Streaming Methods
     // ========================================================================
 
@@ -236,9 +372,11 @@ impl Default for AppState {
             tasks: RwLock::new(HashMap::new()),
             events: RwLock::new(HashMap::new()),
             outputs: RwLock::new(HashMap::new()),
+            chat_messages: RwLock::new(HashMap::new()),
             stream_channels: RwLock::new(HashMap::new()),
             bootstrap_tokens: RwLock::new(HashMap::new()),
             ca: None,
+            ui_tx: None,
         }
     }
 }

@@ -34,7 +34,7 @@ pub struct WorkerConnection {
 impl WorkerConnection {
     /// Create a new WorkerConnection.
     pub fn new(config: Arc<Config>) -> Self {
-        let executor = Arc::new(ClaudeCodeExecutor::new(config.claude_path.clone()));
+        let executor = Arc::new(ClaudeCodeExecutor::new(config.clone()));
         Self {
             config,
             outbound_tx: None,
@@ -146,14 +146,15 @@ impl WorkerConnection {
     }
 
     fn build_worker_info(&self) -> WorkerInfo {
-        // Model backend
-        let backend = ModelBackend::new("anthropic", "claude-opus-4-5")
+        // Model backend from config
+        let backend = ModelBackend::new(&self.config.model_provider, &self.config.model_name)
             .with_context_window(200_000)
             .with_modalities(vec!["text".to_string()]);
 
-        // General-purpose agent that can execute any task
-        let agent = AgentSpec::new("general")
-            .with_description("General-purpose agent that executes any task")
+        // Agent from config
+        let description = get_agent_description(&self.config.agent_name);
+        let agent = AgentSpec::new(&self.config.agent_name)
+            .with_description(&description)
             .with_backend(backend);
 
         // Get hostname
@@ -163,7 +164,18 @@ impl WorkerConnection {
             .with_agent(agent)
             .with_label("env", "development")
     }
+}
 
+/// Get the description for a known agent, or a generic description for custom agents.
+fn get_agent_description(agent_name: &str) -> String {
+    match agent_name {
+        "general" => "General-purpose agent that executes any task".to_string(),
+        "support_triage" => "Classifies and triages support tickets".to_string(),
+        _ => format!("Custom agent: {}", agent_name),
+    }
+}
+
+impl WorkerConnection {
     async fn handle_server_message(&self, msg: taskrun_proto::pb::RunServerMessage) {
         if let Some(payload) = msg.payload {
             match payload {
@@ -196,6 +208,13 @@ impl WorkerConnection {
                 }
                 ServerPayload::Ack(ack) => {
                     info!(ack_type = %ack.ack_type, ref_id = %ack.ref_id, "Received ack");
+                }
+                ServerPayload::ContinueRun(continue_run) => {
+                    info!(
+                        run_id = %continue_run.run_id,
+                        "Received continue request (not supported in headless worker)"
+                    );
+                    // ContinueRun is only supported in the TUI worker which tracks sessions
                 }
             }
         }

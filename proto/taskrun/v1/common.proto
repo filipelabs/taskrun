@@ -84,6 +84,30 @@ message AgentSpec {
 }
 
 // ============================================================================
+// Chat Message
+// ============================================================================
+
+// Role of a message in the conversation
+enum ChatRole {
+  CHAT_ROLE_UNSPECIFIED = 0;
+  CHAT_ROLE_USER = 1;
+  CHAT_ROLE_ASSISTANT = 2;
+  CHAT_ROLE_SYSTEM = 3;
+}
+
+// A message in the conversation history
+message ChatMessage {
+  // Role of this message
+  ChatRole role = 1;
+
+  // Message content
+  string content = 2;
+
+  // Unix timestamp (milliseconds) when message was created
+  int64 timestamp_ms = 3;
+}
+
+// ============================================================================
 // Run Event
 // ============================================================================
 

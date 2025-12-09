@@ -78,6 +78,12 @@ pub struct ClaudeExecutor {
 
     /// Additional environment variables.
     env_vars: Vec<(String, String)>,
+
+    /// Tools to allow (--allowedTools).
+    allowed_tools: Vec<String>,
+
+    /// Tools to disallow (--disallowedTools).
+    disallowed_tools: Vec<String>,
 }
 
 impl ClaudeExecutor {
@@ -92,6 +98,8 @@ impl ClaudeExecutor {
             max_thinking_tokens: None,
             system_prompt: None,
             env_vars: Vec::new(),
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
         }
     }
 
@@ -122,6 +130,18 @@ impl ClaudeExecutor {
     /// Add an environment variable.
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env_vars.push((key.into(), value.into()));
+        self
+    }
+
+    /// Set allowed tools.
+    pub fn with_allowed_tools(mut self, tools: Vec<String>) -> Self {
+        self.allowed_tools = tools;
+        self
+    }
+
+    /// Set disallowed tools.
+    pub fn with_disallowed_tools(mut self, tools: Vec<String>) -> Self {
+        self.disallowed_tools = tools;
         self
     }
 
@@ -189,10 +209,25 @@ impl ClaudeExecutor {
             cmd.arg("--system-prompt").arg(system);
         }
 
-        // Session continuation
+        // Tool permissions
+        for tool in &self.allowed_tools {
+            cmd.arg("--allowedTools").arg(tool);
+        }
+        for tool in &self.disallowed_tools {
+            cmd.arg("--disallowedTools").arg(tool);
+        }
+
+        // Permission mode
+        if self.permission_mode == PermissionMode::BypassPermissions {
+            cmd.arg("--dangerously-skip-permissions");
+            cmd.env("CLAUDE_CODE_ALLOW_DANGEROUSLY_SKIP_PERMISSIONS", "true");
+            info!("Using --dangerously-skip-permissions flag");
+        }
+
+        // Session continuation (--resume for specific session ID)
         if let Some(sid) = session_id {
-            cmd.arg("--continue").arg(sid);
-            info!(session_id = %sid, "Continuing session");
+            cmd.arg("--resume").arg(sid);
+            info!(session_id = %sid, "Resuming session");
         }
 
         // The prompt itself

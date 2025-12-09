@@ -11,18 +11,18 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{error, info, warn};
 
 use taskrun_core::{
-    RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId, WorkerInfo,
-    WorkerStatus,
+    ChatMessage, ChatRole, RunEvent, RunEventType, RunId, RunStatus, TaskId, TaskStatus, WorkerId,
+    WorkerInfo, WorkerStatus,
 };
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::{
-    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage, RunStatusUpdate,
-    WorkerHeartbeat, WorkerHello,
+    RunChatMessage, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunServerMessage,
+    RunStatusUpdate, WorkerHeartbeat, WorkerHello,
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
 use crate::service::mtls::validate_worker_id_format;
-use crate::state::{AppState, ConnectedWorker, StreamEvent};
+use crate::state::{AppState, ConnectedWorker, StreamEvent, UiNotification};
 
 /// RunService implementation.
 pub struct RunServiceImpl {
@@ -90,6 +90,9 @@ impl RunService for RunServiceImpl {
                                 ClientPayload::Event(event) => {
                                     handle_event(&state_clone, event).await;
                                 }
+                                ClientPayload::ChatMessage(chat_msg) => {
+                                    handle_chat_message(&state_clone, chat_msg).await;
+                                }
                             }
                         }
                     }
@@ -104,6 +107,9 @@ impl RunService for RunServiceImpl {
             if let Some(id) = worker_id_clone.lock().await.take() {
                 info!(worker_id = %id, "Worker disconnected");
                 state_clone.workers.write().await.remove(&id);
+
+                // Notify UI
+                state_clone.notify_ui(UiNotification::WorkerDisconnected { worker_id: id });
             }
         });
 
@@ -146,6 +152,10 @@ async fn handle_worker_hello(
         // Store worker_id for cleanup on disconnect
         *worker_id_holder.lock().await = Some(worker_id.clone());
 
+        // Capture info for notification before move
+        let hostname = info.hostname.clone();
+        let agents: Vec<String> = info.agents.iter().map(|a| a.name.clone()).collect();
+
         // Register worker in state
         let connected = ConnectedWorker {
             info,
@@ -156,7 +166,18 @@ async fn handle_worker_hello(
             tx,
         };
 
-        state.workers.write().await.insert(worker_id, connected);
+        state
+            .workers
+            .write()
+            .await
+            .insert(worker_id.clone(), connected);
+
+        // Notify UI
+        state.notify_ui(UiNotification::WorkerConnected {
+            worker_id,
+            hostname,
+            agents,
+        });
     } else {
         error!("WorkerHello received without WorkerInfo");
     }
@@ -187,6 +208,15 @@ async fn handle_heartbeat(state: &Arc<AppState>, hb: WorkerHeartbeat) {
             active_runs = worker.active_runs,
             "Heartbeat received"
         );
+
+        // Notify UI
+        drop(workers); // Release lock before notification
+        state.notify_ui(UiNotification::WorkerHeartbeat {
+            worker_id,
+            status,
+            active_runs: hb.active_runs,
+            max_concurrent_runs: hb.max_concurrent_runs,
+        });
     } else {
         warn!(worker_id = %hb.worker_id, "Heartbeat from unknown worker");
     }
@@ -294,6 +324,29 @@ async fn handle_status_update(state: &Arc<AppState>, update: RunStatusUpdate) {
                     )
                     .await;
 
+                // Notify UI of run status change
+                state.notify_ui(UiNotification::RunStatusChanged {
+                    run_id: run_id.clone(),
+                    task_id: task_id.clone(),
+                    worker_id: Some(worker_id.clone()),
+                    status: run_status,
+                });
+
+                // Notify UI of task status change if it changed
+                if run_status.is_terminal() || run_status == RunStatus::Running {
+                    let task_status = match run_status {
+                        RunStatus::Running => TaskStatus::Running,
+                        RunStatus::Completed => TaskStatus::Completed,
+                        RunStatus::Failed => TaskStatus::Failed,
+                        RunStatus::Cancelled => TaskStatus::Cancelled,
+                        _ => return,
+                    };
+                    state.notify_ui(UiNotification::TaskStatusChanged {
+                        task_id: task_id.clone(),
+                        status: task_status,
+                    });
+                }
+
                 // Schedule cleanup for terminal status
                 if is_terminal {
                     let state_clone = state.clone();
@@ -324,7 +377,7 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
             .map(|t| t.id.clone())
     };
 
-    if let Some(task_id) = task_id {
+    if let Some(ref task_id) = task_id {
         info!(
             task_id = %task_id,
             run_id = %chunk.run_id,
@@ -347,6 +400,7 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
     }
 
     // Publish to stream channel for SSE subscribers
+    let content_for_ui = chunk.content.clone();
     state
         .publish_stream_event(
             &run_id,
@@ -358,6 +412,15 @@ async fn handle_output_chunk(state: &Arc<AppState>, chunk: RunOutputChunk) {
             },
         )
         .await;
+
+    // Notify UI of output chunk
+    if let Some(task_id) = task_id {
+        state.notify_ui(UiNotification::RunOutputChunk {
+            run_id,
+            task_id,
+            content: content_for_ui,
+        });
+    }
 }
 
 async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
@@ -394,6 +457,80 @@ async fn handle_event(state: &Arc<AppState>, proto_event: ProtoRunEvent) {
         "Run event received"
     );
 
+    // Notify UI
+    state.notify_ui(UiNotification::RunEvent {
+        run_id: event.run_id.clone(),
+        task_id: event.task_id.clone(),
+        event_type,
+    });
+
     // Store the event
     state.store_event(event).await;
+}
+
+async fn handle_chat_message(state: &Arc<AppState>, chat_msg: RunChatMessage) {
+    let run_id = RunId::new(&chat_msg.run_id);
+
+    // Parse the message if present
+    let proto_msg = match chat_msg.message {
+        Some(msg) => msg,
+        None => {
+            warn!(run_id = %chat_msg.run_id, "Chat message received without content");
+            return;
+        }
+    };
+
+    // Convert proto role to domain role
+    let role = match taskrun_proto::pb::ChatRole::try_from(proto_msg.role) {
+        Ok(taskrun_proto::pb::ChatRole::User) => ChatRole::User,
+        Ok(taskrun_proto::pb::ChatRole::Assistant) => ChatRole::Assistant,
+        Ok(taskrun_proto::pb::ChatRole::System) => ChatRole::System,
+        _ => {
+            warn!(run_id = %chat_msg.run_id, role = proto_msg.role, "Unknown chat role");
+            return;
+        }
+    };
+
+    // Find task_id for this run
+    let task_id = {
+        let tasks = state.tasks.read().await;
+        tasks
+            .values()
+            .find(|t| t.runs.iter().any(|r| r.run_id == run_id))
+            .map(|t| t.id.clone())
+    };
+
+    let task_id = match task_id {
+        Some(id) => id,
+        None => {
+            warn!(run_id = %chat_msg.run_id, "Chat message for unknown run");
+            return;
+        }
+    };
+
+    info!(
+        run_id = %chat_msg.run_id,
+        task_id = %task_id,
+        role = ?role,
+        content_len = proto_msg.content.len(),
+        "Chat message received"
+    );
+
+    // Create domain chat message
+    let message = ChatMessage {
+        role,
+        content: proto_msg.content.clone(),
+        timestamp_ms: proto_msg.timestamp_ms,
+    };
+
+    // Store the message
+    state.store_chat_message(&run_id, message).await;
+
+    // Notify UI
+    state.notify_ui(UiNotification::ChatMessage {
+        run_id,
+        task_id,
+        role,
+        content: proto_msg.content,
+    });
 }

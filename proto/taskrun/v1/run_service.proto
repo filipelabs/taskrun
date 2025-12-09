@@ -31,7 +31,17 @@ message RunClientMessage {
     RunStatusUpdate status_update = 3;
     RunOutputChunk output_chunk = 4;
     RunEvent event = 5;
+    RunChatMessage chat_message = 6;
   }
+}
+
+// A chat message for a run (user or assistant message in the conversation)
+message RunChatMessage {
+  // Run identifier
+  string run_id = 1;
+
+  // The chat message
+  ChatMessage message = 2;
 }
 
 // Initial message from worker announcing its capabilities
@@ -110,6 +120,7 @@ message RunServerMessage {
     RunAssignment assign_run = 1;
     CancelRun cancel_run = 2;
     ServerAck ack = 3;
+    ContinueRun continue_run = 4;
   }
 }
 
@@ -153,4 +164,16 @@ message ServerAck {
 
   // Relevant identifier (run_id, etc.)
   string ref_id = 2;
+}
+
+// Request to continue an in-progress run with a follow-up message
+message ContinueRun {
+  // Run identifier to continue
+  string run_id = 1;
+
+  // The follow-up message content
+  string message = 2;
+
+  // Unix timestamp (milliseconds) when request was sent
+  int64 timestamp_ms = 3;
 }

@@ -26,6 +26,9 @@ tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+# CLI
+clap = { workspace = true, features = ["derive"] }
+
 # Utilities
 chrono.workspace = true
 thiserror.workspace = true

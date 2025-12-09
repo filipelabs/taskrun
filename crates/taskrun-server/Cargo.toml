@@ -1,0 +1,48 @@
+[package]
+name = "taskrun-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TaskRun control plane server with TUI"
+
+[[bin]]
+name = "taskrun-server"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+taskrun-core = { path = "../taskrun-core" }
+taskrun-proto = { path = "../taskrun-proto" }
+taskrun-control-plane = { path = "../taskrun-control-plane" }
+
+# Async runtime
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# TUI
+ratatui.workspace = true
+crossterm.workspace = true
+
+# gRPC
+tonic.workspace = true
+
+# HTTP
+axum.workspace = true
+tower-http.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Time
+chrono.workspace = true
+
+# Utilities
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-width = "0.2"

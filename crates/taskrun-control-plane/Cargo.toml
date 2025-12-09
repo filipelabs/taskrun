@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "TaskRun control plane server"
 
+[lib]
+name = "taskrun_control_plane"
+path = "src/lib.rs"
+
 [[bin]]
 name = "taskrun-control-plane"
 path = "src/main.rs"

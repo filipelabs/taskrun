@@ -46,6 +46,19 @@ pub struct AgentSpec {
     #[prost(message, repeated, tag = "4")]
     pub backends: ::prost::alloc::vec::Vec<ModelBackend>,
 }
+/// A message in the conversation history
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChatMessage {
+    /// Role of this message
+    #[prost(enumeration = "ChatRole", tag = "1")]
+    pub role: i32,
+    /// Message content
+    #[prost(string, tag = "2")]
+    pub content: ::prost::alloc::string::String,
+    /// Unix timestamp (milliseconds) when message was created
+    #[prost(int64, tag = "3")]
+    pub timestamp_ms: i64,
+}
 /// Run execution event for tracking execution stages
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunEvent {
@@ -210,6 +223,39 @@ impl WorkerStatus {
         }
     }
 }
+/// Role of a message in the conversation
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ChatRole {
+    Unspecified = 0,
+    User = 1,
+    Assistant = 2,
+    System = 3,
+}
+impl ChatRole {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "CHAT_ROLE_UNSPECIFIED",
+            Self::User => "CHAT_ROLE_USER",
+            Self::Assistant => "CHAT_ROLE_ASSISTANT",
+            Self::System => "CHAT_ROLE_SYSTEM",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CHAT_ROLE_UNSPECIFIED" => Some(Self::Unspecified),
+            "CHAT_ROLE_USER" => Some(Self::User),
+            "CHAT_ROLE_ASSISTANT" => Some(Self::Assistant),
+            "CHAT_ROLE_SYSTEM" => Some(Self::System),
+            _ => None,
+        }
+    }
+}
 /// Type of run execution event
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -258,7 +304,7 @@ impl RunEventType {
 /// Wrapper for all messages from worker to control plane
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunClientMessage {
-    #[prost(oneof = "run_client_message::Payload", tags = "1, 2, 3, 4, 5")]
+    #[prost(oneof = "run_client_message::Payload", tags = "1, 2, 3, 4, 5, 6")]
     pub payload: ::core::option::Option<run_client_message::Payload>,
 }
 /// Nested message and enum types in `RunClientMessage`.
@@ -275,7 +321,19 @@ pub mod run_client_message {
         OutputChunk(super::RunOutputChunk),
         #[prost(message, tag = "5")]
         Event(super::RunEvent),
+        #[prost(message, tag = "6")]
+        ChatMessage(super::RunChatMessage),
     }
+}
+/// A chat message for a run (user or assistant message in the conversation)
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RunChatMessage {
+    /// Run identifier
+    #[prost(string, tag = "1")]
+    pub run_id: ::prost::alloc::string::String,
+    /// The chat message
+    #[prost(message, optional, tag = "2")]
+    pub message: ::core::option::Option<ChatMessage>,
 }
 /// Initial message from worker announcing its capabilities
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -356,7 +414,7 @@ pub struct RunOutputChunk {
 /// Wrapper for all messages from control plane to worker
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunServerMessage {
-    #[prost(oneof = "run_server_message::Payload", tags = "1, 2, 3")]
+    #[prost(oneof = "run_server_message::Payload", tags = "1, 2, 3, 4")]
     pub payload: ::core::option::Option<run_server_message::Payload>,
 }
 /// Nested message and enum types in `RunServerMessage`.
@@ -369,6 +427,8 @@ pub mod run_server_message {
         CancelRun(super::CancelRun),
         #[prost(message, tag = "3")]
         Ack(super::ServerAck),
+        #[prost(message, tag = "4")]
+        ContinueRun(super::ContinueRun),
     }
 }
 /// Assignment of a run to a worker
@@ -418,6 +478,19 @@ pub struct ServerAck {
     /// Relevant identifier (run_id, etc.)
     #[prost(string, tag = "2")]
     pub ref_id: ::prost::alloc::string::String,
+}
+/// Request to continue an in-progress run with a follow-up message
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContinueRun {
+    /// Run identifier to continue
+    #[prost(string, tag = "1")]
+    pub run_id: ::prost::alloc::string::String,
+    /// The follow-up message content
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    /// Unix timestamp (milliseconds) when request was sent
+    #[prost(int64, tag = "3")]
+    pub timestamp_ms: i64,
 }
 /// Generated client implementations.
 pub mod run_service_client {

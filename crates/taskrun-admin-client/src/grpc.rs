@@ -1,6 +1,6 @@
 //! gRPC clients for TaskService and WorkerService.
 
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tracing::info;
 
 use taskrun_core::TaskId;
@@ -34,29 +34,57 @@ impl AdminClient {
     /// Connect to the control plane.
     ///
     /// # Arguments
-    /// * `endpoint` - The gRPC endpoint (e.g., "http://[::1]:50051")
+    /// * `endpoint` - The gRPC endpoint (e.g., "https://[::1]:50051")
     /// * `ca_cert` - Optional CA certificate for TLS
-    pub async fn connect(endpoint: &str, ca_cert: Option<&[u8]>) -> Result<Self, ClientError> {
-        info!(endpoint = %endpoint, tls = ca_cert.is_some(), "Connecting to control plane");
+    /// * `client_identity` - Optional client cert+key tuple for mTLS
+    pub async fn connect(
+        endpoint: &str,
+        ca_cert: Option<&[u8]>,
+        client_identity: Option<&(Vec<u8>, Vec<u8>)>,
+    ) -> Result<Self, ClientError> {
+        info!(
+            endpoint = %endpoint,
+            tls = ca_cert.is_some(),
+            mtls = client_identity.is_some(),
+            "Connecting to control plane"
+        );
 
-        let channel = if let Some(ca) = ca_cert {
-            let tls = ClientTlsConfig::new()
-                .ca_certificate(Certificate::from_pem(ca))
-                .domain_name("localhost");
+        let channel = match (ca_cert, client_identity) {
+            // Full mTLS: CA cert + client identity
+            (Some(ca), Some((cert, key))) => {
+                let tls = ClientTlsConfig::new()
+                    .ca_certificate(Certificate::from_pem(ca))
+                    .identity(Identity::from_pem(cert, key))
+                    .domain_name("localhost");
 
-            Channel::from_shared(endpoint.to_string())
-                .map_err(|e| ClientError::Connection(e.to_string()))?
-                .tls_config(tls)
+                Channel::from_shared(endpoint.to_string())
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+                    .tls_config(tls)
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+                    .connect()
+                    .await
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+            }
+            // Server TLS only (no client cert)
+            (Some(ca), None) => {
+                let tls = ClientTlsConfig::new()
+                    .ca_certificate(Certificate::from_pem(ca))
+                    .domain_name("localhost");
+
+                Channel::from_shared(endpoint.to_string())
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+                    .tls_config(tls)
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+                    .connect()
+                    .await
+                    .map_err(|e| ClientError::Connection(e.to_string()))?
+            }
+            // No TLS
+            _ => Channel::from_shared(endpoint.to_string())
                 .map_err(|e| ClientError::Connection(e.to_string()))?
                 .connect()
                 .await
-                .map_err(|e| ClientError::Connection(e.to_string()))?
-        } else {
-            Channel::from_shared(endpoint.to_string())
-                .map_err(|e| ClientError::Connection(e.to_string()))?
-                .connect()
-                .await
-                .map_err(|e| ClientError::Connection(e.to_string()))?
+                .map_err(|e| ClientError::Connection(e.to_string()))?,
         };
 
         Ok(Self {

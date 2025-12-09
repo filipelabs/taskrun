@@ -17,6 +17,8 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use crate::config::Config;
+
 /// Errors that can occur during agent execution.
 #[derive(Debug, Error)]
 pub enum ExecutorError {
@@ -275,14 +277,14 @@ impl ControlHandler for StreamingHandler {
 /// Executes agents via Claude Code SDK.
 #[derive(Clone)]
 pub struct ClaudeCodeExecutor {
-    /// Path to the claude CLI binary.
-    claude_path: String,
+    /// Worker configuration including claude path and tool permissions.
+    config: Arc<Config>,
 }
 
 impl ClaudeCodeExecutor {
-    /// Create a new executor with the given claude CLI path.
-    pub fn new(claude_path: String) -> Self {
-        Self { claude_path }
+    /// Create a new executor with the given configuration.
+    pub fn new(config: Arc<Config>) -> Self {
+        Self { config }
     }
 
     /// Execute an agent with the given input, streaming output and events via channels.
@@ -299,8 +301,10 @@ impl ClaudeCodeExecutor {
     ) -> Result<ExecutionResult, ExecutorError> {
         info!(
             agent = %agent_name,
-            claude_path = %self.claude_path,
+            claude_path = %self.config.claude_path,
             input_len = input_json.len(),
+            allowed_tools = ?self.config.allowed_tools,
+            denied_tools = ?self.config.denied_tools,
             "Starting agent execution"
         );
 
@@ -321,8 +325,18 @@ impl ClaudeCodeExecutor {
         debug!(prompt = %prompt, "Full prompt");
 
         // Create SDK executor with bypass permissions (auto-approve all)
-        let sdk_executor = ClaudeExecutor::new(&self.claude_path)
+        let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
             .with_permission_mode(PermissionMode::BypassPermissions);
+
+        // Apply tool permissions from config
+        if let Some(ref allowed) = self.config.allowed_tools {
+            sdk_executor = sdk_executor.with_allowed_tools(allowed.clone());
+            info!(allowed_tools = ?allowed, "Applying allowed tools filter");
+        }
+        if let Some(ref denied) = self.config.denied_tools {
+            sdk_executor = sdk_executor.with_disallowed_tools(denied.clone());
+            info!(denied_tools = ?denied, "Applying denied tools filter");
+        }
 
         // Create streaming handler with event support
         let handler = Arc::new(StreamingHandler::new(
@@ -422,9 +436,13 @@ pub struct ExecutionResult {
 mod tests {
     use super::*;
 
+    fn test_config() -> Arc<Config> {
+        Arc::new(Config::default())
+    }
+
     #[test]
     fn test_build_support_triage_prompt() {
-        let executor = ClaudeCodeExecutor::new("claude".to_string());
+        let executor = ClaudeCodeExecutor::new(test_config());
         let input = r#"{"ticket_id": "123", "subject": "Cannot login"}"#;
         let prompt = executor.build_support_triage_prompt(input);
 
@@ -435,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_unknown_agent() {
-        let executor = ClaudeCodeExecutor::new("claude".to_string());
+        let executor = ClaudeCodeExecutor::new(test_config());
         let result = executor.build_prompt("unknown_agent", "{}");
         assert!(matches!(result, Err(ExecutorError::UnknownAgent(_))));
     }
