@@ -46,3 +46,8 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 unicode-width = "0.2"
+
+# MCP (Model Context Protocol)
+rmcp.workspace = true
+tokio-util.workspace = true
+schemars.workspace = true

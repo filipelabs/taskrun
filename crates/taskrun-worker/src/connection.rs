@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -15,13 +15,21 @@ use taskrun_core::{AgentSpec, ModelBackend, RunEvent, RunId, TaskId, WorkerInfo}
 use taskrun_proto::pb::run_client_message::Payload as ClientPayload;
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{
-    RunAssignment, RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunStatusUpdate,
-    WorkerHeartbeat, WorkerHello,
+    ChatMessage, ChatRole as ProtoChatRole, ContinueRun, RunAssignment, RunChatMessage,
+    RunClientMessage, RunEvent as ProtoRunEvent, RunOutputChunk, RunStatusUpdate, WorkerHeartbeat,
+    WorkerHello,
 };
 use taskrun_proto::RunServiceClient;
 
 use crate::config::Config;
 use crate::executor::ClaudeCodeExecutor;
+
+/// Session info stored for each run.
+#[derive(Debug, Clone)]
+struct SessionInfo {
+    session_id: String,
+    task_id: String,
+}
 
 /// Manages connection to the control plane.
 pub struct WorkerConnection {
@@ -29,6 +37,8 @@ pub struct WorkerConnection {
     outbound_tx: Option<mpsc::Sender<RunClientMessage>>,
     active_run_count: Arc<AtomicU32>,
     executor: Arc<ClaudeCodeExecutor>,
+    /// Maps run_id -> session info for session continuation.
+    sessions: Arc<Mutex<HashMap<String, SessionInfo>>>,
 }
 
 impl WorkerConnection {
@@ -40,6 +50,7 @@ impl WorkerConnection {
             outbound_tx: None,
             active_run_count: Arc::new(AtomicU32::new(0)),
             executor,
+            sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -192,9 +203,11 @@ impl WorkerConnection {
                         let tx = tx.clone();
                         let active_count = self.active_run_count.clone();
                         let executor = self.executor.clone();
+                        let sessions = self.sessions.clone();
 
                         tokio::spawn(async move {
-                            execute_real_run(executor, tx, assignment, active_count).await;
+                            execute_real_run(executor, tx, assignment, active_count, sessions)
+                                .await;
                         });
                     }
                 }
@@ -212,9 +225,28 @@ impl WorkerConnection {
                 ServerPayload::ContinueRun(continue_run) => {
                     info!(
                         run_id = %continue_run.run_id,
-                        "Received continue request (not supported in headless worker)"
+                        message_len = continue_run.message.len(),
+                        "Received continue request"
                     );
-                    // ContinueRun is only supported in the TUI worker which tracks sessions
+
+                    // Look up session for this run
+                    if let Some(tx) = &self.outbound_tx {
+                        let tx = tx.clone();
+                        let sessions = self.sessions.clone();
+                        let executor = self.executor.clone();
+                        let active_count = self.active_run_count.clone();
+
+                        tokio::spawn(async move {
+                            execute_continue_run(
+                                executor,
+                                tx,
+                                continue_run,
+                                sessions,
+                                active_count,
+                            )
+                            .await;
+                        });
+                    }
                 }
             }
         }
@@ -227,6 +259,7 @@ async fn execute_real_run(
     tx: mpsc::Sender<RunClientMessage>,
     assignment: RunAssignment,
     active_count: Arc<AtomicU32>,
+    sessions: Arc<Mutex<HashMap<String, SessionInfo>>>,
 ) {
     let run_id = assignment.run_id.clone();
     let task_id = assignment.task_id.clone();
@@ -289,6 +322,22 @@ async fn execute_real_run(
 
     match result {
         Ok(Ok(exec_result)) => {
+            // Store session ID for future continuation
+            if let Some(ref session_id) = exec_result.session_id {
+                info!(
+                    run_id = %run_id,
+                    session_id = %session_id,
+                    "Storing session for continuation"
+                );
+                sessions.lock().await.insert(
+                    run_id.clone(),
+                    SessionInfo {
+                        session_id: session_id.clone(),
+                        task_id: task_id.clone(),
+                    },
+                );
+            }
+
             // Send final chunk
             send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
 
@@ -328,6 +377,167 @@ async fn execute_real_run(
         Err(e) => {
             // Task panicked or was cancelled
             error!(run_id = %run_id, error = %e, "Executor task failed");
+            send_status_update_with_error(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Failed,
+                format!("Executor task failed: {}", e),
+            )
+            .await;
+        }
+    }
+
+    // Decrement active run count
+    active_count.fetch_sub(1, Ordering::SeqCst);
+}
+
+/// Execute a continuation of an existing run.
+async fn execute_continue_run(
+    executor: Arc<ClaudeCodeExecutor>,
+    tx: mpsc::Sender<RunClientMessage>,
+    continue_run: ContinueRun,
+    sessions: Arc<Mutex<HashMap<String, SessionInfo>>>,
+    active_count: Arc<AtomicU32>,
+) {
+    let run_id = continue_run.run_id.clone();
+    let message = continue_run.message.clone();
+
+    // Look up session info
+    let session_info = {
+        let sessions_guard = sessions.lock().await;
+        sessions_guard.get(&run_id).cloned()
+    };
+
+    let session_info = match session_info {
+        Some(info) => info,
+        None => {
+            warn!(run_id = %run_id, "No session found for continue request");
+            return;
+        }
+    };
+
+    info!(
+        run_id = %run_id,
+        session_id = %session_info.session_id,
+        "Continuing run with existing session"
+    );
+
+    // Increment active run count
+    active_count.fetch_add(1, Ordering::SeqCst);
+
+    // Send user message as ChatMessage
+    send_chat_message(&tx, &run_id, ProtoChatRole::User, message.clone()).await;
+
+    // Send RUNNING status
+    send_status_update(&tx, &run_id, taskrun_proto::pb::RunStatus::Running, None).await;
+
+    // Create channel for streaming output from executor
+    let (chunk_tx, mut chunk_rx) = mpsc::channel::<crate::executor::OutputChunk>(32);
+
+    // Create channel for events from executor
+    let (event_tx, mut event_rx) = mpsc::channel::<RunEvent>(32);
+
+    // Spawn event forwarder to send events via gRPC
+    let event_tx_grpc = tx.clone();
+    let event_handle = tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            send_event(&event_tx_grpc, event).await;
+        }
+    });
+
+    // Spawn executor in background with session continuation
+    let executor_clone = executor.clone();
+    let session_id = session_info.session_id.clone();
+    let task_id = session_info.task_id.clone();
+    let run_id_clone = RunId::new(&run_id);
+    let task_id_clone = TaskId::new(&task_id);
+    let executor_handle = tokio::spawn(async move {
+        executor_clone
+            .execute_follow_up(&session_id, &message, chunk_tx, event_tx, run_id_clone, task_id_clone)
+            .await
+    });
+
+    // Stream chunks as they arrive
+    let mut seq = 0u64;
+    let tx_for_chat = tx.clone();
+    let run_id_for_chat = run_id.clone();
+    let mut full_response = String::new();
+
+    while let Some(chunk) = chunk_rx.recv().await {
+        if !chunk.is_final && !chunk.content.is_empty() {
+            full_response.push_str(&chunk.content);
+            send_output_chunk(&tx, &run_id, seq, chunk.content, false).await;
+            seq += 1;
+        }
+    }
+
+    // Wait for executor to complete and get result
+    let result = executor_handle.await;
+
+    // Wait for event forwarder to finish
+    let _ = event_handle.await;
+
+    match result {
+        Ok(Ok(exec_result)) => {
+            // Update session ID if it changed
+            if let Some(ref new_session_id) = exec_result.session_id {
+                sessions.lock().await.insert(
+                    run_id.clone(),
+                    SessionInfo {
+                        session_id: new_session_id.clone(),
+                        task_id: session_info.task_id.clone(),
+                    },
+                );
+            }
+
+            // Send assistant response as ChatMessage
+            if !full_response.is_empty() {
+                send_chat_message(
+                    &tx_for_chat,
+                    &run_id_for_chat,
+                    ProtoChatRole::Assistant,
+                    full_response,
+                )
+                .await;
+            }
+
+            // Send final chunk
+            send_output_chunk(&tx, &run_id, seq, String::new(), true).await;
+
+            // Build the backend info that was used
+            let backend_used = taskrun_proto::pb::ModelBackend {
+                provider: exec_result.provider,
+                model_name: exec_result.model_used,
+                context_window: 200_000,
+                supports_streaming: true,
+                modalities: vec!["text".to_string()],
+                tools: vec![],
+                metadata: HashMap::new(),
+            };
+
+            // Send COMPLETED status with backend_used
+            send_status_update(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Completed,
+                Some(backend_used),
+            )
+            .await;
+
+            info!(run_id = %run_id, "Continue execution completed successfully");
+        }
+        Ok(Err(e)) => {
+            error!(run_id = %run_id, error = %e, "Continue execution failed");
+            send_status_update_with_error(
+                &tx,
+                &run_id,
+                taskrun_proto::pb::RunStatus::Failed,
+                e.to_string(),
+            )
+            .await;
+        }
+        Err(e) => {
+            error!(run_id = %run_id, error = %e, "Continue executor task failed");
             send_status_update_with_error(
                 &tx,
                 &run_id,
@@ -446,6 +656,31 @@ async fn send_event(tx: &mpsc::Sender<RunClientMessage>, event: RunEvent) {
 
     if tx.send(msg).await.is_err() {
         warn!("Failed to send event");
+    }
+}
+
+/// Send a chat message to the control plane.
+async fn send_chat_message(
+    tx: &mpsc::Sender<RunClientMessage>,
+    run_id: &str,
+    role: ProtoChatRole,
+    content: String,
+) {
+    let chat_msg = RunChatMessage {
+        run_id: run_id.to_string(),
+        message: Some(ChatMessage {
+            role: role as i32,
+            content,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        }),
+    };
+
+    let msg = RunClientMessage {
+        payload: Some(ClientPayload::ChatMessage(chat_msg)),
+    };
+
+    if tx.send(msg).await.is_err() {
+        warn!(run_id = %run_id, "Failed to send chat message");
     }
 }
 

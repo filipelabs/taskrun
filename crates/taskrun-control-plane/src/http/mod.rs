@@ -7,6 +7,7 @@
 //! - Workers UI (`/ui/workers`)
 //! - Health check (`/health`)
 //! - Prometheus metrics (`/metrics`)
+//! - MCP tools (`/mcp/tools/*`)
 
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::state::AppState;
 
 mod handlers;
+mod mcp;
 pub mod responses;
 
 /// Create the HTTP router.
@@ -37,6 +39,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/workers", get(handlers::list_workers_json))
         .route("/v1/tasks/:task_id/events", get(handlers::get_task_events))
         .route("/v1/tasks/:task_id/output", get(handlers::get_task_output))
+        // MCP tools
+        .route("/mcp/tools/list_workers", post(mcp::list_workers))
+        .route("/mcp/tools/start_new_task", post(mcp::start_new_task))
+        .route("/mcp/tools/read_task", post(mcp::read_task))
+        .route("/mcp/tools/continue_task", post(mcp::continue_task))
         // UI routes
         .route("/ui/workers", get(handlers::list_workers_html))
         // Observability routes

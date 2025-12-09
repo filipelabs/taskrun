@@ -5,6 +5,7 @@
 mod app;
 mod backend;
 mod event;
+pub mod mcp;
 mod render;
 mod state;
 mod views;

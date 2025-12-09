@@ -9,10 +9,14 @@ use tokio::sync::mpsc;
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tracing::{error, info, warn};
 
+use tokio_util::sync::CancellationToken;
+
 use taskrun_control_plane::crypto::CertificateAuthority;
 use taskrun_control_plane::state::{AppState, UiNotification};
 use taskrun_control_plane::{http, RunServiceImpl, Scheduler, TaskServiceImpl, WorkerServiceImpl};
 use taskrun_core::{RunId, Task, TaskId, TaskStatus};
+
+use crate::mcp;
 
 use crate::event::{LogLevel, ServerCommand, ServerUiEvent};
 
@@ -76,8 +80,13 @@ pub async fn run_server_backend(
     let task_service = TaskServiceImpl::new(state_for_grpc.clone()).into_server();
     let worker_service = WorkerServiceImpl::new(state_for_grpc).into_server();
 
-    // Create HTTP router
-    let http_router = http::create_router(state_for_http);
+    // Create cancellation token for MCP
+    let mcp_ct = CancellationToken::new();
+
+    // Create HTTP router with MCP support
+    let http_router = http::create_router(state_for_http.clone());
+    let mcp_router = mcp::create_mcp_router(state_for_http, mcp_ct.clone());
+    let http_router = http_router.merge(mcp_router);
 
     // Parse addresses
     let grpc_addr: SocketAddr = match config.grpc_addr.parse() {
@@ -120,7 +129,10 @@ pub async fn run_server_backend(
     log_to_ui(
         &ui_tx,
         LogLevel::Info,
-        format!("HTTP server listening on {}", config.http_addr),
+        format!(
+            "HTTP server listening on {} (MCP at /mcp)",
+            config.http_addr
+        ),
     )
     .await;
 
@@ -157,8 +169,9 @@ pub async fn run_server_backend(
 
     // Spawn a task to handle commands
     let cmd_ui_tx = ui_tx.clone();
+    let mcp_ct_for_cmds = mcp_ct.clone();
     tokio::spawn(async move {
-        handle_commands(cmd_rx, state_for_commands, cmd_ui_tx).await;
+        handle_commands(cmd_rx, state_for_commands, cmd_ui_tx, mcp_ct_for_cmds).await;
     });
 
     // Run servers concurrently - when one exits or shuts down, the function returns
@@ -195,12 +208,15 @@ async fn handle_commands(
     mut cmd_rx: mpsc::Receiver<ServerCommand>,
     state: Arc<AppState>,
     ui_tx: mpsc::Sender<ServerUiEvent>,
+    mcp_ct: CancellationToken,
 ) {
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             ServerCommand::Shutdown => {
                 info!("Shutdown requested");
                 log_to_ui(&ui_tx, LogLevel::Info, "Shutdown requested".to_string()).await;
+                // Cancel MCP server
+                mcp_ct.cancel();
                 break;
             }
             ServerCommand::CreateTask {

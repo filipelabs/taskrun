@@ -69,3 +69,8 @@ crossterm = "0.28"
 
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# MCP (Model Context Protocol)
+rmcp = { version = "0.11", features = ["server", "transport-streamable-http-server", "axum"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+schemars = "1.0"

@@ -287,6 +287,83 @@ impl ClaudeCodeExecutor {
         Self { config }
     }
 
+    /// Execute a follow-up message in an existing session.
+    ///
+    /// This resumes a previous Claude session by its session ID.
+    pub async fn execute_follow_up(
+        &self,
+        session_id: &str,
+        message: &str,
+        output_tx: mpsc::Sender<OutputChunk>,
+        event_tx: mpsc::Sender<RunEvent>,
+        run_id: RunId,
+        task_id: TaskId,
+    ) -> Result<ExecutionResult, ExecutorError> {
+        info!(
+            session_id = %session_id,
+            message_len = message.len(),
+            "Resuming Claude session"
+        );
+
+        // Emit ExecutionStarted event
+        if event_tx
+            .send(RunEvent::execution_started(run_id.clone(), task_id.clone()))
+            .await
+            .is_err()
+        {
+            warn!("Failed to send ExecutionStarted event");
+        }
+
+        // Create SDK executor with bypass permissions (auto-approve all)
+        let mut sdk_executor = ClaudeExecutor::new(&self.config.claude_path)
+            .with_permission_mode(PermissionMode::BypassPermissions);
+
+        // Apply tool permissions from config
+        if let Some(ref allowed) = self.config.allowed_tools {
+            sdk_executor = sdk_executor.with_allowed_tools(allowed.clone());
+        }
+        if let Some(ref denied) = self.config.denied_tools {
+            sdk_executor = sdk_executor.with_disallowed_tools(denied.clone());
+        }
+
+        // Create streaming handler with event support
+        let handler = Arc::new(StreamingHandler::new(
+            output_tx.clone(),
+            event_tx,
+            run_id,
+            task_id,
+        ));
+
+        // Execute via SDK with session continuation
+        let result = sdk_executor
+            .execute_follow_up(Path::new("."), message, session_id, handler.clone())
+            .await
+            .map_err(|e| ExecutorError::SdkError(e.to_string()))?;
+
+        // Send final marker
+        let _ = output_tx
+            .send(OutputChunk {
+                content: String::new(),
+                is_final: true,
+            })
+            .await;
+
+        let new_session_id = handler.session_id();
+        let model_used = handler.model_used().unwrap_or(result.model_used);
+
+        info!(
+            session_id = ?new_session_id,
+            model = %model_used,
+            "Claude Code follow-up execution completed"
+        );
+
+        Ok(ExecutionResult {
+            model_used,
+            provider: "anthropic".to_string(),
+            session_id: new_session_id,
+        })
+    }
+
     /// Execute an agent with the given input, streaming output and events via channels.
     ///
     /// Returns when execution completes (successfully or with error).
