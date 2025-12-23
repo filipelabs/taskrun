@@ -11,7 +11,7 @@ Open source control plane for orchestrating AI agents on remote workers.
 - **Real-time streaming**: SSE and gRPC bidirectional streaming for live output
 - **Secure communication**: TLS + mTLS between control plane and workers
 - **MCP integration**: Model Context Protocol server for AI assistant tool use
-- **CLI, TUI & DevTools**: Command-line interface, terminal dashboard, and Tauri desktop app
+- **CLI & TUI**: Command-line interface and terminal dashboards
 - **Observability**: Prometheus metrics, structured logging, workers dashboard
 
 ## Quick Start
@@ -237,21 +237,6 @@ Add to your MCP settings:
 
 The MCP server supports session continuation, allowing multi-turn conversations with tasks.
 
-## DevTools
-
-Desktop application for monitoring and testing TaskRun.
-
-```bash
-cd devtools
-cargo tauri dev
-```
-
-Features:
-- Worker status monitoring
-- Task creation and tracking
-- Real-time output streaming
-- Playground for testing prompts
-
 ## Architecture
 
 ```
@@ -342,14 +327,12 @@ taskrun/
 │       └── run_service.proto   # RunService bidirectional streaming
 ├── certs/                      # TLS certificates (generated)
 ├── scripts/                    # Dev scripts (cert generation)
-├── devtools/                   # Tauri + Leptos desktop app
 └── crates/
     ├── taskrun-core/           # Domain types (Task, Run, Worker)
     ├── taskrun-proto/          # Generated gRPC code + converters
-    ├── taskrun-control-plane/  # Control plane library (state, services)
-    ├── taskrun-server/         # Server TUI binary
-    ├── taskrun-worker/         # Worker binary (headless or --tui)
-    ├── taskrun-tui-components/             # Shared TUI components
+    ├── taskrun-server/         # Control plane server (TUI or --headless)
+    ├── taskrun-worker/         # Worker binary (TUI or --headless)
+    ├── taskrun-tui-components/ # Shared TUI components
     ├── taskrun-cli/            # Command line interface
     └── taskrun-claude-sdk/     # Claude Code SDK for agent execution
 ```
@@ -433,7 +416,6 @@ RUST_LOG=info          # Logging level (trace, debug, info, warn, error)
 - [x] Error handling with proper HTTP status codes
 - [x] CLI tool (`taskrun-cli`)
 - [x] TUI dashboard (control plane monitoring + interactive worker)
-- [x] DevTools desktop app (Tauri + Leptos)
 - [x] Prometheus metrics
 - [x] Workers UI dashboard
 - [x] Run events tracking

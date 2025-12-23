@@ -9,8 +9,6 @@ members = [
     "crates/taskrun-admin-client",
     "crates/taskrun-server",
     "crates/taskrun-tui-components",
-    "devtools",
-    "devtools/src-tauri",
 ]
 
 [workspace.package]
