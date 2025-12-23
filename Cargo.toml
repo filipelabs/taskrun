@@ -6,7 +6,6 @@ members = [
     "crates/taskrun-worker",
     "crates/taskrun-cli",
     "crates/taskrun-claude-sdk",
-    "crates/taskrun-admin-client",
     "crates/taskrun-server",
     "crates/taskrun-tui-components",
 ]
