@@ -12,7 +12,7 @@ use taskrun_core::{
 };
 use taskrun_proto::pb::RunServerMessage;
 
-use crate::crypto::{BootstrapToken, CertificateAuthority};
+use crate::control_plane::crypto::{BootstrapToken, CertificateAuthority};
 
 // ============================================================================
 // UI Notification Types

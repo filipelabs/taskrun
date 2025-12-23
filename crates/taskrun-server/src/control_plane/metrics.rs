@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use taskrun_core::{TaskStatus, WorkerStatus};
 
-use crate::state::AppState;
+use crate::control_plane::state::AppState;
 
 /// Collect all metrics from AppState and format as Prometheus text.
 pub async fn collect_metrics(state: &Arc<AppState>) -> String {

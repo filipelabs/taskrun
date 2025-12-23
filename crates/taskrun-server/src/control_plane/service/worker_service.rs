@@ -7,7 +7,7 @@ use tonic::{Request, Response, Status};
 use taskrun_proto::pb::{GetWorkerRequest, ListWorkersRequest, ListWorkersResponse, Worker};
 use taskrun_proto::{WorkerService, WorkerServiceServer};
 
-use crate::state::{AppState, ConnectedWorker};
+use crate::control_plane::state::{AppState, ConnectedWorker};
 
 /// gRPC WorkerService implementation.
 pub struct WorkerServiceImpl {

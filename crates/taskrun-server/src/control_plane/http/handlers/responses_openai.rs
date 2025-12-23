@@ -26,8 +26,8 @@ use tracing::{info, warn};
 
 use taskrun_core::{RunStatus, Task, TaskStatus};
 
-use crate::scheduler::Scheduler;
-use crate::state::{AppState, StreamEvent};
+use crate::control_plane::scheduler::Scheduler;
+use crate::control_plane::state::{AppState, StreamEvent};
 
 // ============================================================================
 // Request Types

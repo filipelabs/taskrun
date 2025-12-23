@@ -9,7 +9,7 @@ use taskrun_core::{RunId, RunSummary, TaskId, TaskStatus, WorkerId};
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{RunAssignment, RunServerMessage};
 
-use crate::state::AppState;
+use crate::control_plane::state::AppState;
 
 /// Scheduler errors.
 #[derive(Debug, Error)]

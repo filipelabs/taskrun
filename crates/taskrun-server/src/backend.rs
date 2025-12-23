@@ -11,9 +11,9 @@ use tracing::{error, info, warn};
 
 use tokio_util::sync::CancellationToken;
 
-use taskrun_control_plane::crypto::CertificateAuthority;
-use taskrun_control_plane::state::{AppState, UiNotification};
-use taskrun_control_plane::{http, RunServiceImpl, Scheduler, TaskServiceImpl, WorkerServiceImpl};
+use crate::control_plane::crypto::CertificateAuthority;
+use crate::control_plane::state::{AppState, UiNotification};
+use crate::control_plane::{http, RunServiceImpl, Scheduler, TaskServiceImpl, WorkerServiceImpl};
 use taskrun_core::{RunId, Task, TaskId, TaskStatus};
 
 use crate::mcp;

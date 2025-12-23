@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use taskrun_core::{RunEventType, TaskId};
 
-use crate::state::AppState;
+use crate::control_plane::state::AppState;
 
 /// Response structure for a run event.
 #[derive(Serialize)]

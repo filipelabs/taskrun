@@ -5,9 +5,9 @@ use std::sync::Arc;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use tracing::{error, info, warn};
 
-use crate::crypto::hash_token;
-use crate::http::responses::{EnrollRequest, EnrollResponse, ErrorResponse};
-use crate::state::AppState;
+use crate::control_plane::crypto::hash_token;
+use crate::control_plane::http::responses::{EnrollRequest, EnrollResponse, ErrorResponse};
+use crate::control_plane::state::AppState;
 
 /// Worker enrollment endpoint.
 ///

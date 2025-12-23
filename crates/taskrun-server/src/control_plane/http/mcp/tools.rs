@@ -9,8 +9,8 @@ use taskrun_core::{ChatRole, RunEventType, Task, TaskId};
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{ContinueRun, RunServerMessage};
 
-use crate::scheduler::Scheduler;
-use crate::state::AppState;
+use crate::control_plane::scheduler::Scheduler;
+use crate::control_plane::state::AppState;
 
 use super::types::*;
 

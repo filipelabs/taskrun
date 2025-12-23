@@ -55,9 +55,8 @@ taskrun-v2/
   crates/
     taskrun-core/         # Domain types (Task, Run, Worker, ModelBackend)
     taskrun-proto/        # Generated gRPC code (tonic/prost) + converters
-    taskrun-control-plane/# Control plane library (state, services, HTTP handlers)
-    taskrun-server/       # Server TUI binary (uses control-plane + ui)
-    taskrun-worker/       # Worker binary (headless or --tui for interactive)
+    taskrun-server/       # Control plane server (TUI or --headless daemon)
+    taskrun-worker/       # Worker binary (TUI or --headless daemon)
     taskrun-tui-components/           # Shared TUI components (widgets, theme, utils)
     taskrun-cli/          # Admin CLI
     taskrun-claude-sdk/   # Claude Code SDK for agent execution
@@ -342,8 +341,11 @@ cargo test --workspace
 # Generate proto code (handled by build.rs in taskrun-proto)
 cargo build -p taskrun-proto
 
-# Run control plane
-cargo run -p taskrun-control-plane
+# Run server (TUI)
+cargo run -p taskrun-server
+
+# Run server (headless daemon)
+cargo run -p taskrun-server -- --headless
 
 # Run worker
 cargo run -p taskrun-worker
@@ -359,9 +361,9 @@ cargo run -p taskrun-worker
 
 ### Quick Start (Three Terminals)
 
-**Terminal 1 - Control Plane:**
+**Terminal 1 - Server:**
 ```bash
-RUST_LOG=info cargo run -p taskrun-control-plane
+cargo run -p taskrun-server
 ```
 
 **Terminal 2 - Worker:**

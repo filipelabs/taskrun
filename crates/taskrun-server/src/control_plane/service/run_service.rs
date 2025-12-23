@@ -21,8 +21,8 @@ use taskrun_proto::pb::{
 };
 use taskrun_proto::{RunService, RunServiceServer};
 
-use crate::service::mtls::validate_worker_id_format;
-use crate::state::{AppState, ConnectedWorker, StreamEvent, UiNotification};
+use crate::control_plane::service::mtls::validate_worker_id_format;
+use crate::control_plane::state::{AppState, ConnectedWorker, StreamEvent, UiNotification};
 
 /// RunService implementation.
 pub struct RunServiceImpl {

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use axum::{extract::State, http::header, response::IntoResponse, Json};
 
-use crate::http::responses::{AgentResponse, BackendResponse, WorkerResponse};
-use crate::state::AppState;
+use crate::control_plane::http::responses::{AgentResponse, BackendResponse, WorkerResponse};
+use crate::control_plane::state::AppState;
 
 /// List workers as JSON.
 pub async fn list_workers_json(State(state): State<Arc<AppState>>) -> impl IntoResponse {

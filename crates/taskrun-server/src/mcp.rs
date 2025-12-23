@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use taskrun_control_plane::state::{AppState, UiNotification};
-use taskrun_control_plane::Scheduler;
+use crate::control_plane::state::{AppState, UiNotification};
+use crate::control_plane::Scheduler;
 use taskrun_core::{ChatRole, Task};
 use taskrun_proto::pb::run_server_message::Payload as ServerPayload;
 use taskrun_proto::pb::{ContinueRun, RunServerMessage};

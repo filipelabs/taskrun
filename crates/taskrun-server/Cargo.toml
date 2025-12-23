@@ -14,7 +14,6 @@ path = "src/main.rs"
 # Internal crates
 taskrun-core = { path = "../taskrun-core" }
 taskrun-proto = { path = "../taskrun-proto" }
-taskrun-control-plane = { path = "../taskrun-control-plane" }
 taskrun-tui-components = { path = "../taskrun-tui-components" }
 
 # Async runtime
@@ -52,3 +51,15 @@ unicode-width = "0.2"
 rmcp.workspace = true
 tokio-util.workspace = true
 schemars.workspace = true
+
+# HTTP
+futures-util = "0.3"
+
+# Crypto (for certificate authority)
+rcgen.workspace = true
+x509-parser.workspace = true
+rand.workspace = true
+sha2.workspace = true
+base64.workspace = true
+hex.workspace = true
+pem.workspace = true

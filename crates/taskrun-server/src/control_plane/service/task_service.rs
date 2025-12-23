@@ -13,8 +13,8 @@ use taskrun_proto::pb::{
 };
 use taskrun_proto::{TaskService, TaskServiceServer};
 
-use crate::scheduler::Scheduler;
-use crate::state::{AppState, UiNotification};
+use crate::control_plane::scheduler::Scheduler;
+use crate::control_plane::state::{AppState, UiNotification};
 
 /// TaskService implementation.
 pub struct TaskServiceImpl {
