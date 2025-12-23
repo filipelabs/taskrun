@@ -80,7 +80,9 @@ fn run_headless_mode(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     info!("Connection closed normally");
                 }
                 Err(e) => {
-                    error!(error = %e, "Connection error");
+                    // Extract root cause from error chain
+                    let root_cause = get_root_cause(&*e);
+                    error!(error = %root_cause, "Connection failed");
                 }
             }
 
@@ -182,4 +184,41 @@ fn parse_tools(tools: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Extract a user-friendly error message from an error chain.
+/// Looks for common TLS/connection errors and provides actionable messages.
+pub fn get_root_cause(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut current: &dyn std::error::Error = err;
+    let mut messages = Vec::new();
+
+    loop {
+        let msg = current.to_string();
+        messages.push(msg.clone());
+
+        // Check for specific TLS errors and provide helpful messages
+        if msg.contains("CertificateExpired") {
+            return "Certificate expired. Run: scripts/gen-worker-cert.sh".to_string();
+        }
+        if msg.contains("CertificateRequired") {
+            return "Server requires client certificate. Check --client-cert and --client-key".to_string();
+        }
+        if msg.contains("CertificateUnknown") || msg.contains("UnknownCA") {
+            return "Certificate not trusted. Check --ca-cert matches server's CA".to_string();
+        }
+        if msg.contains("HandshakeFailure") {
+            return "TLS handshake failed. Check certificate configuration".to_string();
+        }
+        if msg.contains("Connection refused") {
+            return "Connection refused. Is the server running?".to_string();
+        }
+
+        match current.source() {
+            Some(source) => current = source,
+            None => break,
+        }
+    }
+
+    // Return the deepest error message if no specific match
+    messages.pop().unwrap_or_else(|| err.to_string())
 }

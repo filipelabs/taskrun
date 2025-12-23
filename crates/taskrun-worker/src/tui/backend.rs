@@ -91,8 +91,9 @@ pub async fn run_worker_backend(
                 .await;
             }
             Err(e) => {
-                error!(error = %e, "Connection error");
-                log_to_ui(&ui_tx, LogLevel::Error, format!("Connection error: {}", e)).await;
+                let root_cause = crate::get_root_cause(&*e);
+                error!(error = %root_cause, "Connection failed");
+                log_to_ui(&ui_tx, LogLevel::Error, root_cause).await;
             }
         }
 
